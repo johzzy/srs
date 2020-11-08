@@ -36,3 +36,5 @@
 
 /cmake-build-debug/
 /CMakeLists.txt
+/trunk/ide/srs_clion/cmake-build-debug
+/trunk/ide/srs_clion/cmake-build-release
