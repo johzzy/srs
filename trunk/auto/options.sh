@@ -19,6 +19,7 @@ SRS_HDS=NO
 SRS_SRT=NO
 SRS_RTC=YES
 SRS_QUIC=YES
+SRS_HTTP3=NO
 SRS_GB28181=NO
 SRS_CXX11=YES
 SRS_CXX14=NO
@@ -153,6 +154,7 @@ Features:
   --srt=on|off              Whether build the SRT. Default: $(value2switch $SRS_SRT)
   --rtc=on|off              Whether build the WebRTC. Default: $(value2switch $SRS_RTC)
   --quic=on|off             Whether build the QUIC. Default: $(value2switch $SRS_QUIC)
+  --http3=on|off            Whether build the HTTP3. Default: $(value2switch $SRS_HTTP3)
   --gb28181=on|off          Whether build the GB28181. Default: $(value2switch $SRS_GB28181)
   --cxx11=on|off            Whether enable the C++11. Default: $(value2switch $SRS_CXX11)
   --cxx14=on|off            Whether enable the C++14. Default: $(value2switch $SRS_CXX14)
@@ -287,6 +289,10 @@ function parse_user_option() {
         --with-quic)                    SRS_QUIC=YES                ;;
         --without-quic)                 SRS_QUIC=NO                 ;;
         --quic)                         if [[ $value == off ]]; then SRS_QUIC=NO; else SRS_QUIC=YES; fi    ;;
+
+        --with-http3)                   SRS_HTTP3=YES                ;;
+        --without-http3)                SRS_HTTP3=NO                 ;;
+        --http3)                        if [[ $value == off ]]; then SRS_HTTP3=NO; else SRS_HTTP3=YES; fi    ;;
 
         --with-gb28181)                 SRS_GB28181=YES             ;;
         --without-gb28181)              SRS_GB28181=NO              ;;
@@ -463,6 +469,11 @@ function apply_detail_options() {
         SRS_FFMPEG_FIT=YES
     fi
 
+    if [[ $SRS_HTTP3 == YES && $SRS_QUIC == NO ]]; then
+        echo "Enable QUIC, because HTTP3 is enabled."
+        SRS_QUIC=YES
+    fi
+
     # if transcode/ingest specified, requires the ffmpeg stub classes.
     SRS_FFMPEG_STUB=NO
     if [ $SRS_TRANSCODE = YES ]; then SRS_FFMPEG_STUB=YES; fi
@@ -547,6 +558,7 @@ function regenerate_options() {
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --srt=$(value2switch $SRS_SRT)"
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --rtc=$(value2switch $SRS_RTC)"
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --quic=$(value2switch $SRS_QUIC)"
+    SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --http3=$(value2switch $SRS_HTTP3)"
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --simulator=$(value2switch $SRS_SIMULATOR)"
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --gb28181=$(value2switch $SRS_GB28181)"
     SRS_AUTO_CONFIGURE="${SRS_AUTO_CONFIGURE} --cxx11=$(value2switch $SRS_CXX11)"

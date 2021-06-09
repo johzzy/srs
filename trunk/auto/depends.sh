@@ -678,7 +678,7 @@ if [[ $SRS_QUIC == YES ]]; then
             unzip ../../3rdparty/ngtcp2-master.zip && cd ngtcp2-master &&
             autoreconf -i && PKG_CONFIG_PATH="../../../objs/openssl/lib/pkgconfig" \
                 LDFLAGS="-Wl,-rpath,../../../objs/openssl/lib" ./configure \
-                --prefix=`pwd`/_release && make ${SRS_JOBS} && make install
+                --enable-lib-only --prefix=`pwd`/_release && make ${SRS_JOBS} && make install
         )
     fi
     # check status
@@ -686,6 +686,29 @@ if [[ $SRS_QUIC == YES ]]; then
     # Always update the links.
     (cd ${SRS_OBJS} && rm -rf ngtcp2 && ln -sf ${SRS_PLATFORM}/ngtcp2-master/_release ngtcp2)
     if [ ! -f ${SRS_OBJS}/ngtcp2/lib/libngtcp2.a ]; then echo "Build ngtcp2 failed."; exit -1; fi
+fi
+
+#####################################################################################
+# nghtp3, for HTTP/3 support.
+#####################################################################################
+if [[ $SRS_HTTP3 == YES ]]; then
+    if [[ -f ${SRS_OBJS}/nghttp3/lib/libnghttp3.a ]]; then
+        echo "The nghttp3 is OK.";
+    else
+        echo "Building nghttp3.";
+        (
+            ABS_OBJS=`pwd`/${SRS_OBJS} &&
+            rm -rf ${SRS_OBJS}/${SRS_PLATFORM}/nghttp3 && cd ${SRS_OBJS}/${SRS_PLATFORM} &&
+            unzip ../../3rdparty/nghttp3-main.zip && cd nghttp3-main &&
+            autoreconf -i && ./configure --enable-lib-only --prefix=`pwd`/_release && 
+            make ${SRS_JOBS} && make install
+        )
+    fi
+    # check status
+    ret=$?; if [[ $ret -ne 0 ]]; then echo "Build nghttp3 failed, ret=$ret"; exit $ret; fi
+    # Always update the links.
+    (cd ${SRS_OBJS} && rm -rf nghttp3 && ln -sf ${SRS_PLATFORM}/nghttp3-main/_release nghttp3)
+    if [ ! -f ${SRS_OBJS}/nghttp3/lib/libnghttp3.a ]; then echo "Build nghttp3 failed."; exit -1; fi
 fi
 
 #####################################################################################
