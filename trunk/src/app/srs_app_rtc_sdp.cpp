@@ -1333,13 +1333,19 @@ static int janus_rtp_header_extension_parse_mid(char *buf, int len, int id,
 SrsRidInfo* SrsExtMapInfo::parse_rid(char *buf, int len, SrsSimulcastInfo &simulcast) {
     char sdes_item[16];
     int ret;
-    std::string rid;
+    std::string rid, ridrtx;
     std::string mid;
     if((ret = janus_rtp_header_extension_parse_rid(buf, len, rid_ext_id(), sdes_item, sizeof(sdes_item))) == 0) {
         // srs_warn("====== rid sdes_item %s", sdes_item);
         rid = sdes_item;
     } else {
         return nullptr;
+    }
+    if((ret = janus_rtp_header_extension_parse_rid(buf, len, ridrtx_ext_id(), sdes_item, sizeof(sdes_item))) == 0) {
+        srs_warn("====== ridrtx sdes_item %s", sdes_item);
+        ridrtx = sdes_item;
+    } else {
+        srs_warn("====== bad ridrtx sdes_item %s", sdes_item);
     }
     if((ret = janus_rtp_header_extension_parse_mid(buf, len, rid_ext_id(), sdes_item, sizeof(sdes_item))) == 0) {
         // srs_warn("====== mid sdes_item %s", sdes_item);
@@ -1348,6 +1354,7 @@ SrsRidInfo* SrsExtMapInfo::parse_rid(char *buf, int len, SrsSimulcastInfo &simul
     for (size_t i=0; i<simulcast.rids.size(); ++i) {
         if (simulcast.rids[i].rid == rid) {
             simulcast.rids[i].mid = mid;
+            simulcast.rids[i].rtx = ridrtx;
             return &simulcast.rids[i];
         }
     }
