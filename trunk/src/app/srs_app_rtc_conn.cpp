@@ -2792,9 +2792,9 @@ srs_error_t SrsRtcConnection::negotiate_publish_capability(SrsRtcUserConfig* ruc
                     // break;
                 } else if (remote_media_desc.simulcast_spec_version()) {
                     // note: add all ext map in simulcast_spec_version
-                    // if (it->second == kExtMapFieldArray[kSdesRtpStreamId]) {
+                    if (it->second == kExtMapFieldArray[kSdesRtpStreamId] || it->second == kExtMapFieldArray[kSdesRepairedRtpStreamId]) {
                         track_desc->add_rtp_extension_desc(it->first, it->second);
-                    // }
+                    }
                 }
             }
         }
