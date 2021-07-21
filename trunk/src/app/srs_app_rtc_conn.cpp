@@ -2290,7 +2290,16 @@ srs_error_t SrsRtcConnection::on_rtcp_feedback_twcc(char* data, int nb_data)
 srs_error_t SrsRtcConnection::on_rtcp_feedback_remb(SrsRtcpPsfbCommon *rtcp)
 {
     //ignore REMB
-    return srs_success;
+    srs_error_t err = srs_success;
+    srs_warn("===== %s#%d: dispatch REMB rc=%d, ssrc=%u", __FUNCTION__, __LINE__, rtcp->get_rc(), rtcp->get_ssrc());
+    map<uint32_t, SrsRtcPublishStream*>::iterator it = publishers_ssrc_map_.find(rtcp->get_ssrc());
+    if(it == publishers_ssrc_map_.end()) {
+        return err;
+        return srs_error_new(ERROR_RTC_NO_PUBLISHER, "no publisher for ssrc:%u", rtcp->get_ssrc());
+    }
+    // SrsRtcPublishStream* publisher = it->second;
+    // publisher->send_rtcp_remb();
+    return err;
 }
 
 void SrsRtcConnection::set_hijacker(ISrsRtcConnectionHijacker* h)
