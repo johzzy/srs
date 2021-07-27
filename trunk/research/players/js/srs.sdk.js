@@ -612,6 +612,12 @@ function UpdateNativeCreateOffer(numberOfSimulcastLayers) {
                 /* sdp munging code. Really, its just extracting some information (ssrc, cname and msid) and reusing it.
                  * It could just set a different set of ssrc instead of trying to reuse the first.
                  */
+                {
+                    const lines = sections[0].trim().split('\r\n');
+                    lines.push('a=johzzy:config hello=1,world=2');
+                    sections[0] = lines.join('\r\n') + '\r\n'
+                }
+
                 const firstVideoIndex = sections.findIndex(s => SDPUtils.getKind(s) === 'video')
                 if (firstVideoIndex === -1) {
                     return new RTCSessionDescription({ type, sdp })
