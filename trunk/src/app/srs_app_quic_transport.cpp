@@ -192,8 +192,6 @@ int SrsQuicStreamBuffer::write(const void* buf, int buf_size)
 
 int SrsQuicStreamBuffer::read(void* buf, int buf_size)
 {
-    srs_assert(buf_size > 0);
-
     if (size_ == 0) {
         srs_error("buffer empty");
         return 0;
