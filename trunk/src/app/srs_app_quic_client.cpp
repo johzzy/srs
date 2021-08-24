@@ -73,7 +73,6 @@ ngtcp2_settings SrsQuicClient::build_quic_settings(uint8_t* token , size_t token
 	settings.initial_ts = srs_get_system_time_for_quic();
   	settings.max_udp_payload_size = NGTCP2_MAX_PKTLEN_IPV4;
   	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
-  	settings.initial_rtt = 10 * NGTCP2_MILLISECONDS;
 
     return settings;
 }
@@ -102,7 +101,7 @@ srs_error_t SrsQuicClient::create_udp_socket(const std::string& ip)
     // TODO: FIXME: too complex.
     addrinfo hints;
     memset(&hints, 0, sizeof(hints));
-    // TODO: FIXME: Ipv6 need support?
+    // TODO: FIXME: IPv6 need support?
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags    = AI_NUMERICHOST;
@@ -235,7 +234,7 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
         return srs_error_wrap(err, "create socket failed");
     }
 
-    // TODO: FIXME: global client udp loop.
+    // TODO: FIXME: We can register all quic client to quic io loop.
     if ((err = create_udp_io_thread()) != srs_success) {
         return srs_error_wrap(err, "create udp io thread failed");
     }
@@ -247,7 +246,6 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
         return srs_error_new(ERROR_QUIC_CLIENT, "invalid addr=%s", ip.c_str());
     }
 
-    // TODO: FIXME: maginc number.
     scid_.datalen = kServerCidLen;
     srs_generate_rand_data(scid_.data, scid_.datalen);
     dcid_.datalen = kClientCidLen;
@@ -259,7 +257,7 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
         return srs_error_wrap(err, "connect to %s:%u failed", ip.c_str(), port);
     }
 
-    if ((err = write_protocol_data()) != srs_success) {
+    if ((err = write_data()) != srs_success) {
         return srs_error_wrap(err, "send quic client init packet failed");
     }
 

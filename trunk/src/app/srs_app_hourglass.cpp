@@ -1,28 +1,12 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2021 Winlin
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_hourglass.hpp>
 
+#include <algorithm>
 using namespace std;
 
 #include <srs_kernel_error.hpp>
@@ -31,7 +15,9 @@ using namespace std;
 
 #include <srs_protocol_kbps.hpp>
 
-SrsPps* _srs_pps_timer = new SrsPps();
+SrsPps* _srs_pps_timer = NULL;
+SrsPps* _srs_pps_conn = NULL;
+SrsPps* _srs_pps_pub = NULL;
 
 extern SrsPps* _srs_pps_clock_15ms;
 extern SrsPps* _srs_pps_clock_20ms;
@@ -122,7 +108,7 @@ srs_error_t SrsHourGlass::cycle()
             int event = it->first;
             srs_utime_t interval = it->second;
 
-            if (interval == 0 || (total_elapse % interval) == 0) {
+            if (interval == 0 || ((total_elapse != 0) && (total_elapse % interval) == 0)) {
                 ++_srs_pps_timer->sugar;
 
                 if ((err = handler->notify(event, interval, total_elapse)) != srs_success) {
@@ -139,6 +125,88 @@ srs_error_t SrsHourGlass::cycle()
     return err;
 }
 
+ISrsDynamicTimer::ISrsDynamicTimer()
+{
+}
+
+ISrsDynamicTimer::~ISrsDynamicTimer()
+{
+}
+
+SrsDynamicTimer::SrsDynamicTimer(string label, ISrsDynamicTimer* h, srs_utime_t resolution)
+{
+    label_ = label;
+    handler = h;
+    _resolution = resolution;
+    trd = new SrsSTCoroutine("timer-" + label, this, _srs_context->get_id());
+}
+
+SrsDynamicTimer::~SrsDynamicTimer()
+{
+    srs_freep(trd);
+}
+
+srs_error_t SrsDynamicTimer::start()
+{
+    srs_error_t err = srs_success;
+
+    if ((err = trd->start()) != srs_success) {
+        return srs_error_wrap(err, "start timer");
+    }
+
+    return err;
+}
+
+void SrsDynamicTimer::stop()
+{
+    trd->stop();
+}
+
+void SrsDynamicTimer::tick(int event, srs_utime_t expired_time)
+{
+    ticks[event] = expired_time;
+}
+
+void SrsDynamicTimer::untick(int event)
+{
+    map<int, srs_utime_t>::iterator it = ticks.find(event);
+    if (it != ticks.end()) {
+        ticks.erase(it);
+    }
+}
+
+srs_error_t SrsDynamicTimer::cycle()
+{
+    srs_error_t err = srs_success;
+
+    while (true) {
+        if ((err = trd->pull()) != srs_success) {
+            return srs_error_wrap(err, "quit");
+        }
+
+        srs_utime_t now_time = srs_update_system_time();
+    
+        map<int, srs_utime_t>::iterator it;
+        for (it = ticks.begin(); it != ticks.end(); ++it) {
+            int event = it->first;
+            srs_utime_t expired_time = it->second;
+
+            if (expired_time > 0 && now_time >= expired_time) {
+                // Timeout, and mark it never expired, unless tick it again.
+                it->second = -1;
+
+                if ((err = handler->notify(event, now_time)) != srs_success) {
+                    return srs_error_wrap(err, "notify");
+                }
+            }
+        }
+
+        srs_usleep(_resolution);
+    }
+    
+    return err;
+}
+
 ISrsFastTimer::ISrsFastTimer()
 {
 }
@@ -147,71 +215,63 @@ ISrsFastTimer::~ISrsFastTimer()
 {
 }
 
-SrsFastTimer::SrsFastTimer(std::string label, srs_utime_t resolution)
+SrsFastTimer::SrsFastTimer(std::string label, srs_utime_t interval)
 {
-    timer_ = new SrsHourGlass(label, this, resolution);
+    trd_ = new SrsSTCoroutine(label, this, _srs_context->get_id());
+    interval_ = interval;
 }
 
 SrsFastTimer::~SrsFastTimer()
 {
-    srs_freep(timer_);
+    srs_freep(trd_);
 }
 
 srs_error_t SrsFastTimer::start()
 {
     srs_error_t err = srs_success;
 
-    if ((err = timer_->start()) != srs_success) {
+    if ((err = trd_->start()) != srs_success) {
         return srs_error_wrap(err, "start timer");
     }
 
     return err;
 }
 
-void SrsFastTimer::subscribe(srs_utime_t interval, ISrsFastTimer* timer)
+void SrsFastTimer::subscribe(ISrsFastTimer* timer)
 {
-    static int g_event = 0;
-
-    int event = g_event++;
-
-    // TODO: FIXME: Error leak. Change tick to void in future.
-    timer_->tick(event, interval);
-
-    handlers_[event] = timer;
+    if (std::find(handlers_.begin(), handlers_.end(), timer) == handlers_.end()) {
+        handlers_.push_back(timer);
+    }
 }
 
 void SrsFastTimer::unsubscribe(ISrsFastTimer* timer)
 {
-    for (map<int, ISrsFastTimer*>::iterator it = handlers_.begin(); it != handlers_.end();) {
-        if (it->second != timer) {
-            ++it;
-            continue;
-        }
-
-        handlers_.erase(it++);
-
-        int event = it->first;
-        timer_->untick(event);
+    vector<ISrsFastTimer*>::iterator it = std::find(handlers_.begin(), handlers_.end(), timer);
+    if (it != handlers_.end()) {
+        handlers_.erase(it);
     }
 }
 
-srs_error_t SrsFastTimer::notify(int event, srs_utime_t interval, srs_utime_t tick)
+srs_error_t SrsFastTimer::cycle()
 {
     srs_error_t err = srs_success;
 
-    for (map<int, ISrsFastTimer*>::iterator it = handlers_.begin(); it != handlers_.end(); ++it) {
-        ISrsFastTimer* timer = it->second;
-
-        if (event != it->first) {
-            continue;
+    while (true) {
+        if ((err = trd_->pull()) != srs_success) {
+            return srs_error_wrap(err, "quit");
         }
 
-        if ((err = timer->on_timer(interval, tick)) != srs_success) {
-            return srs_error_wrap(err, "tick for event=%d, interval=%dms, tick=%dms",
-                event, srsu2msi(interval), srsu2msi(tick));
+        ++_srs_pps_timer->sugar;
+
+        for (int i = 0; i < (int)handlers_.size(); i++) {
+            ISrsFastTimer* timer = handlers_.at(i);
+
+            if ((err = timer->on_timer(interval_)) != srs_success) {
+                srs_freep(err); // Ignore any error for shared timer.
+            }
         }
 
-        break;
+        srs_usleep(interval_);
     }
 
     return err;
@@ -225,7 +285,7 @@ SrsClockWallMonitor::~SrsClockWallMonitor()
 {
 }
 
-srs_error_t SrsClockWallMonitor::on_timer(srs_utime_t interval, srs_utime_t tick)
+srs_error_t SrsClockWallMonitor::on_timer(srs_utime_t interval)
 {
     srs_error_t err = srs_success;
 

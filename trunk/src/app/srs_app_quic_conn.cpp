@@ -104,8 +104,6 @@ ngtcp2_settings SrsQuicConnection::build_quic_settings(uint8_t* token, size_t to
   	settings.token.len = tokenlen;
   	settings.max_udp_payload_size = NGTCP2_MAX_PKTLEN_IPV4;
   	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
-  	settings.initial_rtt = 10 * NGTCP2_MILLISECONDS;
-
     return settings;
 }
 
@@ -169,7 +167,6 @@ srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_
     }
 
    	tls_context_ = new SrsQuicTlsServerContext();
-    // TODO: FIXME: get tls key/cert.
     string tls_key = listener_->get_key();
     string tls_cert = listener_->get_cert();
     if ((err = tls_context_->init(tls_key, tls_cert)) != srs_success) {
