@@ -145,7 +145,7 @@ srs_error_t SrsRtcForwardQuicConn::accept_stream()
     SrsRtcForwardQuicStreamThread* trd = new SrsRtcForwardQuicStreamThread(this, stream_id);
     if ((err = trd->start()) != srs_success) {
         srs_freep(trd);
-        return srs_error_wrap(err, "rtc forward consumer start failed");
+        return srs_error_wrap(err, "rtc forward stream thread start failed");
     }
 
     stream_trds_.insert(make_pair(stream_id, trd));
@@ -179,13 +179,12 @@ std::string SrsRtcForwardQuicConn::desc()
     return "RtcForwardQuicConn";
 }
 
-SrsRtcForwardQuicStreamThread::SrsRtcForwardQuicStreamThread(SrsRtcForwardQuicConn* consumer, int64_t stream_id)
+SrsRtcForwardQuicStreamThread::SrsRtcForwardQuicStreamThread(SrsRtcForwardQuicConn* conn, int64_t stream_id)
 {
     trd_ = NULL;
     req_ = NULL;
 
-    consumer_ = consumer;
-    quic_conn_ = consumer->quic_conn_;
+    quic_conn_ = conn->quic_conn_;
     stream_id_ = stream_id;
 
     timeout_ = 5 * SRS_UTIME_SECONDS;

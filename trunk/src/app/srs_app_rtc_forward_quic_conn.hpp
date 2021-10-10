@@ -84,7 +84,7 @@ public:
 class SrsRtcForwardQuicStreamThread : virtual public ISrsCoroutineHandler
 {
 public:
-    SrsRtcForwardQuicStreamThread(SrsRtcForwardQuicConn* consumer, int64_t stream_id);
+    SrsRtcForwardQuicStreamThread(SrsRtcForwardQuicConn* conn, int64_t stream_id);
     ~SrsRtcForwardQuicStreamThread();
 public:
     srs_error_t start();
@@ -102,7 +102,6 @@ private:
     srs_error_t read_header(uint16_t& body_len, srs_utime_t timeout);
     srs_error_t read_body(void* buf, int size, srs_utime_t timeout);
 private:
-    SrsRtcForwardQuicConn* consumer_;
     SrsQuicConnection* quic_conn_;
     SrsRequest* req_;
     int64_t stream_id_;
