@@ -40,6 +40,7 @@ using namespace std;
 #include <srs_service_utility.hpp>
 #include <srs_protocol_utility.hpp>
 #include <srs_app_rtc_forward_quic_conn.hpp>
+#include <srs_app_http3_conn.hpp>
 
 SrsQuicServer::SrsQuicServer()
 {
@@ -77,6 +78,12 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
             return srs_error_wrap(err, "quic rtc_forward_quic_conn start failed");
         }
     } else if (type == SrsQuicListenerHttpApi) {
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        conn_manager_->add(h3_conn);
+        if ((err = h3_conn->start()) != srs_success) {
+            srs_freep(h3_conn);
+            return srs_error_wrap(err, "quic h3_conn start failed");
+        }
         // TODO: FIXME:  HTTP3 support.
     } else if (type == SrsQuicListenerHttpStream) {
         // TODO: FIXME:  HTTP3 support.

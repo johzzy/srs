@@ -144,6 +144,12 @@ if [[ $SRS_QUIC == YES ]]; then
   LibNgtcp2Root="${SRS_OBJS_DIR}/ngtcp2/include"; LibNgtcp2File="${SRS_OBJS_DIR}/ngtcp2/lib/libngtcp2.a ${SRS_OBJS_DIR}/ngtcp2/lib/libngtcp2_crypto_openssl.a"
 fi
 
+# http3
+if [[ $SRS_HTTP3 == YES ]]; then
+  LibNghttp3Root="${SRS_OBJS_DIR}/nghttp3/include"; LibNghttp3File="${SRS_OBJS_DIR}/nghttp3/lib/libnghttp3.a"
+fi
+
+
 # FFMPEG for WebRTC transcoding, such as aac to opus.
 if [[ $SRS_FFMPEG_FIT == YES ]]; then
   LibFfmpegRoot="${SRS_OBJS_DIR}/ffmpeg/include"; LibFfmpegFile="${SRS_OBJS_DIR}/ffmpeg/lib/libavcodec.a ${SRS_OBJS_DIR}/ffmpeg/lib/libswresample.a ${SRS_OBJS_DIR}/ffmpeg/lib/libavutil.a"
@@ -246,6 +252,10 @@ if [[ $SRS_QUIC == YES ]]; then
     ModuleLibIncs+=(${LibNgtcp2Root})
 fi
 
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibIncs+=(${LibNghttp3Root})
+fi
+
 if [[ $SRS_FFMPEG_FIT == YES ]]; then
     ModuleLibIncs+=("${LibFfmpegRoot[*]}")
 fi
@@ -279,6 +289,9 @@ fi
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibIncs+=(${LibNgtcp2Root})
 fi
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibIncs+=(${LibNghttp3Root})
+fi
 MODULE_FILES=("srs_app_server" "srs_app_conn" "srs_app_rtmp_conn" "srs_app_source"
         "srs_app_refer" "srs_app_hls" "srs_app_forward" "srs_app_encoder" "srs_app_http_stream"
         "srs_app_bandwidth" "srs_app_st" "srs_app_log" "srs_app_config"
@@ -302,6 +315,9 @@ if [[ $SRS_QUIC == YES ]]; then
     MODULE_FILES+=("srs_app_quic_conn" "srs_app_quic_server" "srs_app_quic_tls" "srs_app_quic_util"
         "srs_app_quic_client" "srs_app_quic_transport" "srs_app_quic_io_loop" 
         "srs_app_rtc_forward_quic_client" "srs_app_rtc_forward_quic_conn")
+fi
+if [[ $SRS_HTTP3 == YES ]]; then
+    MODULE_FILES+=("srs_app_http3_conn")
 fi
 if [[ $SRS_GB28181 == YES ]]; then
     MODULE_FILES+=("srs_app_gb28181" "srs_app_gb28181_sip" "srs_app_gb28181_jitter")
@@ -337,6 +353,9 @@ fi
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibIncs+=(${LibNgtcp2Root})
 fi
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibIncs+=(${LibNghttp3Root})
+fi
 if [[ $SRS_SRT == YES ]]; then
     ModuleLibIncs+=(${LibSRTRoot})
     ModuleLibIncs+=("${SrsSRTRoot[*]}")
@@ -358,6 +377,10 @@ fi
 
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibIncs+=(${LibNgtcp2Root})
+fi
+
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibIncs+=(${LibNghttp3Root})
 fi
 
 if [[ $SRS_SRT == YES ]]; then
@@ -397,6 +420,9 @@ fi
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibFiles+=(${LibNgtcp2File})
 fi
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibFiles+=(${LibNghttp3File})
+fi
 if [[ $SRS_SRT == YES ]]; then
     ModuleLibFiles+=("${LibSRTfile[*]}")
 fi
@@ -415,6 +441,11 @@ fi
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibIncs+=(${LibNgtcp2Root})
 fi
+
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibIncs+=(${LibNghttp3Root})
+fi
+
 if [[ $SRS_SRT == YES ]]; then
     ModuleLibIncs+=(${LibSRTRoot})
     ModuleLibIncs+=("${SrsSRTRoot[*]}")
@@ -437,6 +468,10 @@ fi
 
 if [[ $SRS_QUIC == YES ]]; then
     ModuleLibFiles+=(${LibNgtcp2File})
+fi
+
+if [[ $SRS_HTTP3 == YES ]]; then
+    ModuleLibFiles+=(${LibNghttp3File})
 fi
 
 if [[ $SRS_GB28181 == YES ]]; then
@@ -471,6 +506,9 @@ if [ $SRS_UTEST = YES ]; then
     if [[ $SRS_QUIC == YES ]]; then
         ModuleLibIncs+=(${LibNgtcp2Root})
     fi
+    if [[ $SRS_HTTP3 == YES ]]; then
+        ModuleLibIncs+=(${LibNghttp3Root})
+    fi
     if [[ $SRS_SRT == YES ]]; then
         ModuleLibIncs+=("${SrsSRTRoot[*]}")
     fi
@@ -483,6 +521,9 @@ if [ $SRS_UTEST = YES ]; then
     fi
     if [[ $SRS_QUIC == YES ]]; then
         ModuleLibFiles+=(${LibNgtcp2File})
+    fi
+    if [[ $SRS_HTTP3 == YES ]]; then
+        ModuleLibFiles+=(${LibNghttp3File})
     fi
     if [[ $SRS_SRT == YES ]]; then
         ModuleLibFiles+=("${LibSRTfile[*]}")
