@@ -147,13 +147,15 @@ static int cb_get_path_challenge_data(ngtcp2_conn *conn, uint8_t *data, void *us
 
 SrsQuicStream::SrsQuicStream(int64_t stream_id, const SrsQuicStreamDirection& direction, 
                              const SrsQuicStreamState& state, SrsQuicTransport* transport)
-    : recv_buffer_(kStreamDataSize) // TODO: FIXME: adapt to quic stream setting
-    , send_buffer_(kStreamDataSize) // TODO: FIXME: adapt to quic stream setting
-    , stream_id_(stream_id)
+    : stream_id_(stream_id)
     , quic_transport_(transport)
     , direction_(direction)
     , state_(state)
 {
+    // TODO: FIXME: adapt buffer size to quic stream setting
+    recv_buffer_ = new SrsQuicStreamReadBuffer(kStreamDataSize);
+    send_buffer_ = new SrsQuicStreamWriteBuffer(kStreamDataSize);
+
     ready_to_read_ = srs_cond_new();
     read_blocking_  = false;
 
@@ -163,20 +165,23 @@ SrsQuicStream::SrsQuicStream(int64_t stream_id, const SrsQuicStreamDirection& di
 
 SrsQuicStream::~SrsQuicStream()
 {
+    srs_freep(recv_buffer_);
+    srs_freep(send_buffer_);
+
     srs_cond_destroy(ready_to_read_);
     srs_cond_destroy(ready_to_write_);
 }
 
 srs_error_t SrsQuicStream::write(const void* buf, int size, ssize_t* nb_write, srs_utime_t timeout)
 {
-    if (send_buffer_.full()) {
+    if (send_buffer_->full()) {
         if (wait_writeable(timeout) != 0) {
             return srs_error_new(ERROR_QUIC_TIMEOUT, "quic conn %s, write stream %ld timeout",
                 quic_transport_->get_conn_name().c_str(), stream_id_);
         }
     }
 
-    int nb = send_buffer_.write(buf, size);
+    int nb = send_buffer_->write(buf, size);
     if (nb_write) {
         *nb_write = nb;
     }
@@ -206,13 +211,13 @@ srs_error_t SrsQuicStream::write_fully(const void* buf, int size, ssize_t* nb_wr
 
 srs_error_t SrsQuicStream::read(void* buf, int buf_size, ssize_t* nb_read, srs_utime_t timeout)
 {
-    if (recv_buffer_.empty()) {
+    if (recv_buffer_->empty()) {
         if (wait_readable(timeout) != 0) {
             return srs_error_new(ERROR_QUIC_TIMEOUT, "read stream %ld timeout", stream_id_);
         }
     }
 
-    int nb = recv_buffer_.read(buf, buf_size);
+    int nb = recv_buffer_->read(buf, buf_size);
     if (nb_read) {
         *nb_read = nb;
     }
@@ -241,7 +246,7 @@ srs_error_t SrsQuicStream::read_fully(void* buf, int buf_size, ssize_t* nb_read,
 
 int SrsQuicStream::on_data(const uint8_t* buf, size_t size)
 {
-    int nb = recv_buffer_.write(buf, size);
+    int nb = recv_buffer_->write(buf, size);
     notify_readable();
 
     return nb;
@@ -249,7 +254,7 @@ int SrsQuicStream::on_data(const uint8_t* buf, size_t size)
 
 srs_error_t SrsQuicStream::flush()
 {
-    return quic_transport_->write_stream_data(stream_id_, &send_buffer_);
+    return quic_transport_->write_stream_data(stream_id_, send_buffer_);
 }
 
 int SrsQuicStream::wait_writeable(srs_utime_t timeout)
@@ -286,7 +291,7 @@ int SrsQuicStream::notify_readable()
 
 int SrsQuicStream::acked_stream_data_offset(uint64_t offset, uint64_t datalen) 
 {
-    int nb_acked = send_buffer_.acked(datalen);
+    int nb_acked = send_buffer_->acked(datalen);
     if (nb_acked != (int)datalen) {
         srs_warn("acked size not match, acked=%d, datalen=%lu", nb_acked, datalen);
         return -1;

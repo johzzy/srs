@@ -121,10 +121,10 @@ srs_error_t SrsQuicClient::create_udp_socket(const std::string& ip)
     }
 
     for (addrinfo* rp = r; rp; rp = rp->ai_next) {
-        if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
-    		break;
+        if (::bind(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            break;
         }
-  	}
+    }
 
     local_addr_len_ = sizeof(local_addr_);
     if (getsockname(fd, (sockaddr*)&local_addr_, &local_addr_len_) != 0) {

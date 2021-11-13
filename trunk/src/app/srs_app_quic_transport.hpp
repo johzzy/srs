@@ -93,11 +93,11 @@ public:
     void set_closing() { state_ = SrsQuicStreamStateClosing; }
     void set_closed() { state_ = SrsQuicStreamStateClosed; }
 private:
-    SrsQuicStreamReadBuffer recv_buffer_;
+    SrsQuicStreamReadBuffer* recv_buffer_;
     srs_cond_t ready_to_read_;
     bool read_blocking_;
 
-    SrsQuicStreamWriteBuffer send_buffer_;
+    SrsQuicStreamWriteBuffer* send_buffer_;
     srs_cond_t ready_to_write_;
     bool write_blocking_;
 

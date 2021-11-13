@@ -133,7 +133,7 @@ int SrsQuicConnection::handshake_completed()
 {
 	srs_trace("quic connection handshake %s completed", get_conn_name().c_str());
 
-    uint8_t token[kMaxTokenLen];
+    uint8_t token[NGTCP2_CRYPTO_MAX_REGULAR_TOKENLEN];
     size_t tokenlen = sizeof(token);
     if (quic_token_->generate_token(token, tokenlen, reinterpret_cast<const sockaddr*>(&remote_addr_), 
                                     remote_addr_len_) != 0) {
