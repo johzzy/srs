@@ -32,6 +32,7 @@
 #include <srs_app_reload.hpp>
 #include <srs_service_conn.hpp>
 #include <srs_app_conn.hpp>
+#include <srs_app_quic_buffer.hpp>
 
 #include <deque>
 #include <string>
@@ -41,6 +42,7 @@
 #include <sys/socket.h>
 
 #include <ngtcp2/ngtcp2.h>
+#include <nghttp3/nghttp3.h>
 
 class SrsQuicTlsContext;
 class SrsQuicTlsSession;
@@ -63,34 +65,6 @@ enum SrsQuicStreamState
     SrsQuicStreamStateClosed = 4,
 };
 
-// Ring buffer with fixed size, avoid alloc/free memory too frequently.
-class SrsQuicStreamBuffer
-{
-public:
-    SrsQuicStreamBuffer(int size);
-    ~SrsQuicStreamBuffer();
-public:
-    int write(const void* data, int size);
-    int read(void* data, int size);
-    uint8_t* data() const;
-    size_t sequent_size() const;
-    int skip(int size);
-    size_t size() const { return static_cast<size_t>(size_); }
-    bool empty() const { return size_ == 0; }
-    bool full() const { return size_ == capacity_; }
-private:
-    // 
-    uint8_t* buffer_;
-    // Capacity of the buffer.
-    int capacity_;
-    // Current size of the buffer.
-    int size_;
-    // Next write postion.
-    int write_pos_;
-    // Next read postion.
-    int read_pos_;
-};
-
 class SrsQuicStream
 {
 public:
@@ -107,6 +81,7 @@ public:
     int notify_writeable();
     int wait_readable(srs_utime_t timeout);
     int notify_readable();
+    int acked_stream_data_offset(uint64_t offset, uint64_t datalen);
 public:
     int on_data(const uint8_t* buf, size_t size);
     srs_error_t flush();
@@ -118,11 +93,11 @@ public:
     void set_closing() { state_ = SrsQuicStreamStateClosing; }
     void set_closed() { state_ = SrsQuicStreamStateClosed; }
 private:
-    SrsQuicStreamBuffer recv_buffer_;
+    SrsQuicStreamReadBuffer recv_buffer_;
     srs_cond_t ready_to_read_;
     bool read_blocking_;
 
-    SrsQuicStreamBuffer send_buffer_;
+    SrsQuicStreamWriteBuffer send_buffer_;
     srs_cond_t ready_to_write_;
     bool write_blocking_;
 
@@ -139,6 +114,8 @@ class SrsQuicTransport : virtual public ISrsDynamicTimer
 public:
     SrsQuicTransport();
   	virtual ~SrsQuicTransport();
+public:
+    void set_http3_conn(nghttp3_conn* conn) { http3_conn_ = conn; }
 public:
     void on_ngtcp2_log(const char* fmt, va_list ap);
     void on_qlog(uint32_t flags, const void *data, size_t datalen);
@@ -164,7 +141,7 @@ public:
     std::string get_local_name();
     std::string get_remote_name();
     void wait_stream_writeable(int64_t stream_id);
-    srs_error_t write_stream_data(int64_t stream_id, SrsQuicStreamBuffer* buffer);
+    srs_error_t write_stream_data(int64_t stream_id, SrsQuicStreamWriteBuffer* buffer);
 	srs_error_t update_transport_timer();
     srs_error_t update_idle_timer();
     srs_error_t update_idle_timer_in_closing_or_draining();
@@ -177,7 +154,6 @@ private:
     srs_error_t enter_draining_period();
 
     void notify_accept_stream(int64_t stream_id);
-    void notify_stream_writeable(int64_t stream_id);
 // interface ISrsDynamicTimer
 protected:
     virtual srs_error_t notify(int event, srs_utime_t now_time);
@@ -207,6 +183,7 @@ public:
     int on_stream_reset(int64_t stream_id, uint64_t final_size, uint64_t app_error_code);
     int get_new_connection_id(ngtcp2_cid *cid, uint8_t *token, size_t cidlen);
     int remove_connection_id(const ngtcp2_cid *cid);
+    int extend_max_remote_streams_bidi(uint64_t max_streams);
     int extend_max_stream_data(int64_t stream_id, uint64_t max_data);
     int update_key(uint8_t *rx_secret, uint8_t *tx_secret, ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv,
                    ngtcp2_crypto_aead_ctx *tx_aead_ctx, uint8_t *tx_iv, const uint8_t *current_rx_secret,
@@ -215,6 +192,7 @@ public:
 public:
     // TODO: FIXME: add annotation.
     virtual srs_error_t open_stream(int64_t* stream_id);
+    virtual srs_error_t open_uni_stream(int64_t* stream_id);
     virtual srs_error_t close_stream(int64_t stream_id, uint64_t app_error_code);
     srs_error_t accept_stream(srs_utime_t timeout, int64_t& stream_id);
 
@@ -240,6 +218,8 @@ protected:
     ngtcp2_cid dcid_;
     ngtcp2_cid origin_dcid_;
 protected:
+    nghttp3_conn* http3_conn_;
+protected:
 	srs_netfd_t udp_fd_;
     // Store quic connectoin addr, maybe update when connection migrate.
     sockaddr_in local_addr_;
@@ -247,13 +227,6 @@ protected:
     sockaddr_in remote_addr_;
     socklen_t remote_addr_len_;
 protected:
-    // Struct to store quic crypto data(TLS handshake).
-    struct SrsQuicCryptoBuffer {
-        SrsQuicCryptoBuffer() : acked_offset(0) {}
-        int acked_offset;
-        std::deque<std::string> queue;
-    } crypto_buffer_[3];
-
     uint8_t* udp_send_buffer_;
     int udp_send_buffer_size_;
 

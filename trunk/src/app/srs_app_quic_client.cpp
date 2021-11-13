@@ -71,7 +71,7 @@ ngtcp2_settings SrsQuicClient::build_quic_settings(uint8_t* token , size_t token
     settings.log_printf = ngtcp2_log_handle;
     settings.qlog.write = qlog_handle;
 	settings.initial_ts = srs_get_system_time_for_quic();
-  	settings.max_udp_payload_size = NGTCP2_MAX_PKTLEN_IPV4;
+  	settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
   	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
 
     return settings;

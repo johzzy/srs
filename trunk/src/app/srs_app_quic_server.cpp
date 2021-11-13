@@ -67,6 +67,8 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
 {
     srs_error_t err = srs_success;
 
+    srs_trace("on quic client, type=%d", (int)type);
+
     // Create QUIC application connections by listen type, the life of `conn` is manage by 
     // SrsQuicIoLoop, applicaion connections never free it.
 
@@ -86,6 +88,21 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
         }
         // TODO: FIXME:  HTTP3 support.
     } else if (type == SrsQuicListenerHttpStream) {
+        // TODO: FIXME:  HTTP3 support.
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        conn_manager_->add(h3_conn);
+        if ((err = h3_conn->start()) != srs_success) {
+            srs_freep(h3_conn);
+            return srs_error_wrap(err, "quic h3_conn start failed");
+        }
+        // TODO: FIXME:  HTTP3 support.
+    } else {
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        conn_manager_->add(h3_conn);
+        if ((err = h3_conn->start()) != srs_success) {
+            srs_freep(h3_conn);
+            return srs_error_wrap(err, "quic h3_conn start failed");
+        }
         // TODO: FIXME:  HTTP3 support.
     }
 

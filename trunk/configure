@@ -313,7 +313,7 @@ if [[ $SRS_FFMPEG_FIT == YES ]]; then
 fi
 if [[ $SRS_QUIC == YES ]]; then
     MODULE_FILES+=("srs_app_quic_conn" "srs_app_quic_server" "srs_app_quic_tls" "srs_app_quic_util"
-        "srs_app_quic_client" "srs_app_quic_transport" "srs_app_quic_io_loop" 
+        "srs_app_quic_client" "srs_app_quic_transport" "srs_app_quic_io_loop" "srs_app_quic_buffer"
         "srs_app_rtc_forward_quic_client" "srs_app_rtc_forward_quic_conn")
 fi
 if [[ $SRS_HTTP3 == YES ]]; then
@@ -776,6 +776,11 @@ if [ $SRS_QUIC = YES ]; then
     echo -e "${YELLOW}Experiment: QUIC is enabled.${BLACK}"
 else
     echo -e "${GREEN}Warning: QUIC is disabled.${BLACK}"
+fi
+if [ $SRS_HTTP3 = YES ]; then
+    echo -e "${YELLOW}Experiment: HTTP3 is enabled.${BLACK}"
+else
+    echo -e "${GREEN}Warning: HTTP3 is disabled.${BLACK}"
 fi
 if [ $SRS_HTTPS = YES ]; then
     echo -e "${YELLOW}Experiment: HTTPS is enabled. https://github.com/ossrs/srs/issues/1657${BLACK}"

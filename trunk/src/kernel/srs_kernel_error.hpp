@@ -398,12 +398,13 @@
 #define ERROR_QUIC_BAD_STREAM               7010
 #define ERROR_QUIC_CLOSING                  7011
 #define ERROR_QUIC_DRAINING                 7012
-#define ERROR_QUIC_DROP_CONN                7013
-#define ERROR_QUIC_RETRY                    7014
-#define ERROR_QUIC_TIMEOUT                  7015
-#define ERROR_QUIC_UDP_SEND                 7016
-#define ERROR_QUIC_READ                     7017
-#define ERROR_QUIC_WRITE                    7018
+#define ERROR_QUIC_CLOSED                   7013
+#define ERROR_QUIC_DROP_CONN                7014
+#define ERROR_QUIC_RETRY                    7015
+#define ERROR_QUIC_TIMEOUT                  7016
+#define ERROR_QUIC_UDP_SEND                 7017
+#define ERROR_QUIC_READ                     7018
+#define ERROR_QUIC_WRITE                    7019
 
 ///////////////////////////////////////////////////////
 // HTTP3 protocol error.

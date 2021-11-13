@@ -65,13 +65,6 @@ static int cb_handshake_completed(ngtcp2_conn *conn, void *user_data)
     return quic_transport->handshake_completed();
 }
 
-static int cb_acked_crypto_offset(ngtcp2_conn *conn, ngtcp2_crypto_level crypto_level,
-    uint64_t offset, uint64_t datalen, void *user_data) 
-{
-    SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport *>(user_data);
-    return quic_transport->acked_crypto_offset(crypto_level, offset, datalen);
-}
-
 static int cb_acked_stream_data_offset(ngtcp2_conn *conn, int64_t stream_id,
     uint64_t offset, uint64_t datalen, void *user_data, void *stream_user_data) 
 {
@@ -85,7 +78,7 @@ static int cb_stream_open(ngtcp2_conn *conn, int64_t stream_id, void *user_data)
     return quic_transport->on_stream_open(stream_id);
 }
 
-static int cb_stream_close(ngtcp2_conn *conn, int64_t stream_id, uint64_t app_error_code,
+static int cb_stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id, uint64_t app_error_code,
     void *user_data, void *stream_user_data) 
 {
     SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport *>(user_data);
@@ -125,7 +118,8 @@ static int cb_stream_reset(ngtcp2_conn *conn, int64_t stream_id, uint64_t final_
 
 static int cb_extend_max_remote_streams_bidi(ngtcp2_conn *conn, uint64_t max_streams, void *user_data) 
 {
-    return 0;
+    SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport *>(user_data);
+    return quic_transport->extend_max_remote_streams_bidi(max_streams);
 }
 
 static int cb_extend_max_stream_data(ngtcp2_conn *conn, int64_t stream_id,
@@ -145,113 +139,10 @@ static int cb_update_key(ngtcp2_conn *conn, uint8_t *rx_secret, uint8_t *tx_secr
         tx_aead_ctx, tx_iv, current_tx_secret, current_rx_secret, secretlen);
 }
 
-SrsQuicStreamBuffer::SrsQuicStreamBuffer(int capacity)
+static int cb_get_path_challenge_data(ngtcp2_conn *conn, uint8_t *data, void *user_data) 
 {
-    capacity_ = capacity;
-    size_ = 0;
-    buffer_ = new uint8_t[capacity_];
-    write_pos_ = 0;
-    read_pos_ = 0;
-}
-
-SrsQuicStreamBuffer::~SrsQuicStreamBuffer()
-{
-    srs_freepa(buffer_);
-}
-
-int SrsQuicStreamBuffer::write(const void* buf, int buf_size)
-{
-    if (size_ == capacity_) {
-        srs_error("buffer full");
-        return 0;
-    }
-
-    int size_write = 0;
-    if (write_pos_ >= read_pos_) {
-        size_write = srs_min(capacity_ - (write_pos_ - read_pos_), buf_size);
-        int write_size_to_buffer_end = srs_min(capacity_ - write_pos_, size_write);
-        memcpy(buffer_ + write_pos_, buf, write_size_to_buffer_end);
-
-        int write_size_from_buffer_begin = size_write - write_size_to_buffer_end;
-        if (write_size_from_buffer_begin > 0) {
-            memcpy(buffer_, static_cast<const uint8_t*>(buf) + write_size_to_buffer_end, write_size_from_buffer_begin);
-        }
-
-        write_pos_ += size_write;
-        write_pos_ %= capacity_;
-    } else {
-        size_write = srs_min(read_pos_ - write_pos_, buf_size);
-        memcpy(buffer_ + write_pos_, buf, size_write);
-        write_pos_ += size_write;
-    }
-
-    size_ += size_write;
-
-    return size_write;
-}
-
-int SrsQuicStreamBuffer::read(void* buf, int buf_size)
-{
-    if (size_ == 0) {
-        srs_error("buffer empty");
-        return 0;
-    }
-
-    int size_read = 0;
-    if (write_pos_ == read_pos_) {
-        size_read = srs_min(size_, buf_size);
-        if (buf) {
-            memcpy(buf, buffer_ + read_pos_, size_read);
-        }
-        read_pos_ += size_read;
-    } else if (write_pos_ > read_pos_) {
-        size_read = srs_min((write_pos_ - read_pos_), buf_size);
-        if (buf) {
-            memcpy(buf, buffer_ + read_pos_, size_read);
-        }
-        read_pos_ += size_read;
-    } else {
-        int size_read_to_buffer_end = srs_min(capacity_ - read_pos_, buf_size);
-        if (buf) {
-            memcpy(buf, buffer_ + read_pos_, size_read_to_buffer_end);
-        }
-
-        int size_read_from_buffer_begin = srs_min(buf_size - size_read_to_buffer_end, write_pos_);
-        if (size_read_from_buffer_begin && buf) {
-            memcpy(static_cast<uint8_t*>(buf) + size_read_to_buffer_end, buffer_, size_read_from_buffer_begin);
-        }
-
-        size_read = size_read_to_buffer_end + size_read_from_buffer_begin;
-        read_pos_ += size_read;
-        read_pos_ %= capacity_;
-    }
-
-    size_ -= size_read;
-
-    return size_read;
-}
-
-uint8_t* SrsQuicStreamBuffer::data() const
-{
-    return buffer_ + read_pos_;
-}
-
-size_t SrsQuicStreamBuffer::sequent_size() const
-{
-    if (size_ == 0) {
-        return 0;
-    }
-
-    if (write_pos_ > read_pos_) {
-        return write_pos_ - read_pos_;
-    }
-
-    return capacity_ - read_pos_;
-}
-
-int SrsQuicStreamBuffer::skip(int size)
-{
-    return read(NULL, size);
+  	srs_generate_rand_data(data, NGTCP2_PATH_CHALLENGE_DATALEN);
+  	return 0;
 }
 
 SrsQuicStream::SrsQuicStream(int64_t stream_id, const SrsQuicStreamDirection& direction, 
@@ -309,12 +200,13 @@ srs_error_t SrsQuicStream::write_fully(const void* buf, int size, ssize_t* nb_wr
             *nb_write += nb;
         }
     }
+
     return err;
 }
 
 srs_error_t SrsQuicStream::read(void* buf, int buf_size, ssize_t* nb_read, srs_utime_t timeout)
 {
-    while (recv_buffer_.empty()) {
+    if (recv_buffer_.empty()) {
         if (wait_readable(timeout) != 0) {
             return srs_error_new(ERROR_QUIC_TIMEOUT, "read stream %ld timeout", stream_id_);
         }
@@ -392,14 +284,26 @@ int SrsQuicStream::notify_readable()
     return srs_cond_signal(ready_to_read_);
 }
 
+int SrsQuicStream::acked_stream_data_offset(uint64_t offset, uint64_t datalen) 
+{
+    int nb_acked = send_buffer_.acked(datalen);
+    if (nb_acked != (int)datalen) {
+        srs_warn("acked size not match, acked=%d, datalen=%lu", nb_acked, datalen);
+        return -1;
+    }
+
+    return 0;
+}
+
 SrsQuicTransport::SrsQuicTransport()
 {
     timer_ = new SrsDynamicTimer("quic", this, 1 * SRS_UTIME_MILLISECONDS);
     conn_ = NULL;
+    http3_conn_ = NULL;
     udp_fd_ = NULL;
     local_addr_len_ = 0;
     remote_addr_len_ = 0;
-    udp_send_buffer_size_ = NGTCP2_MAX_PKTLEN_IPV4;
+    udp_send_buffer_size_ = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
     udp_send_buffer_ = new uint8_t[udp_send_buffer_size_];
     tls_context_ = NULL;
     tls_session_ = NULL;
@@ -418,7 +322,6 @@ SrsQuicTransport::SrsQuicTransport()
     cb_.decrypt = ngtcp2_crypto_decrypt_cb;
     cb_.hp_mask = ngtcp2_crypto_hp_mask;
     cb_.recv_stream_data = cb_recv_stream_data;
-    cb_.acked_crypto_offset = cb_acked_crypto_offset;
     cb_.acked_stream_data_offset = cb_acked_stream_data_offset;
     cb_.stream_open = cb_stream_open;
     cb_.stream_close = cb_stream_close;
@@ -441,6 +344,11 @@ SrsQuicTransport::SrsQuicTransport()
     cb_.recv_new_token = NULL;
     cb_.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
     cb_.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
+    cb_.recv_datagram = NULL;
+    cb_.ack_datagram = NULL;
+    cb_.lost_datagram = NULL;
+    cb_.get_path_challenge_data = cb_get_path_challenge_data;
+
 }
 
 SrsQuicTransport::~SrsQuicTransport()
@@ -679,13 +587,7 @@ int SrsQuicTransport::on_application_tx_key()
 
 int SrsQuicTransport::write_handshake(ngtcp2_crypto_level level, const uint8_t *data, size_t datalen) 
 {
-    SrsQuicCryptoBuffer& crypto = crypto_buffer_[(int)level];
-    // Store data into crypto buffer.
-    crypto.queue.push_back(string(reinterpret_cast<const char*>(data), datalen));
-
-    string& buf = crypto.queue.back();
-    ngtcp2_conn_submit_crypto_data(conn_, level, reinterpret_cast<const uint8_t*>(buf.data()), buf.size());
-
+    ngtcp2_conn_submit_crypto_data(conn_, level, data, datalen);
     return 0;
 }
 
@@ -735,23 +637,26 @@ int SrsQuicTransport::recv_stream_data(uint32_t flags, int64_t stream_id, uint64
     return 0;
 }
 
-int SrsQuicTransport::acked_crypto_offset(ngtcp2_crypto_level crypto_level, uint64_t offset, uint64_t datalen) 
-{
-    SrsQuicCryptoBuffer& crypto = crypto_buffer_[(int)crypto_level];
-
-    // TODO:FIXME: maybe acked partial?
-    deque<string>& queue = crypto.queue;
-    while (queue.empty() && crypto.acked_offset + queue.front().size() <= offset + datalen) {
-        string& v = queue.front();
-        crypto.acked_offset += v.size();
-        queue.pop_front();
-    }
-    return 0;
-}
-
 int SrsQuicTransport::acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen) 
 {
-    notify_stream_writeable(stream_id);
+    if (http3_conn_) {
+   	    int ret = nghttp3_conn_add_ack_offset(http3_conn_, stream_id, datalen);
+        if (ret != 0) {
+            return NGTCP2_ERR_CALLBACK_FAILURE;
+        }
+    }
+ 
+    SrsQuicStream* stream = find_stream(stream_id);
+    if (stream == NULL) {
+        return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+
+    if (stream->acked_stream_data_offset(offset, datalen) != 0) {
+        return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+
+    stream->notify_writeable();
+
     return 0;
 }
 
@@ -824,8 +729,7 @@ int SrsQuicTransport::get_new_connection_id(ngtcp2_cid *cid, uint8_t *token, siz
     srs_generate_rand_data(cid->data, cid->datalen);
     srs_trace("generate new conn id %s", quic_conn_id_dump(cid->data, cid->datalen).c_str());
 
-    ngtcp2_crypto_md md = crypto_md_sha256();
-    if (ngtcp2_crypto_generate_stateless_reset_token(token, &md, get_static_secret(), 
+    if (ngtcp2_crypto_generate_stateless_reset_token(token, get_static_secret(), 
             get_static_secret_len(), cid) != 0) {
         return NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -839,20 +743,25 @@ int SrsQuicTransport::remove_connection_id(const ngtcp2_cid *cid)
     return 0;
 }
 
-int SrsQuicTransport::extend_max_stream_data(int64_t stream_id, uint64_t max_data)
+int SrsQuicTransport::extend_max_remote_streams_bidi(uint64_t max_streams)
 {
+    if (http3_conn_) {
+        nghttp3_conn_set_max_client_streams_bidi(http3_conn_, max_streams);
+    }
     return 0;
 }
 
-void SrsQuicTransport::notify_stream_writeable(int64_t stream_id)
+int SrsQuicTransport::extend_max_stream_data(int64_t stream_id, uint64_t max_data)
 {
-    SrsQuicStream* stream = find_stream(stream_id);
-    if (stream == NULL) {
-        return;
+    if (http3_conn_) {
+        int ret = nghttp3_conn_unblock_stream(http3_conn_, stream_id);
+        if (ret != 0) {
+            srs_error("nghttp3_conn_unblock_stream %ld failed", stream_id);
+        }
     }
-
-    stream->notify_writeable();
+    return 0;
 }
+
 
 int SrsQuicTransport::update_key(uint8_t *rx_secret, uint8_t *tx_secret,
                                  ngtcp2_crypto_aead_ctx *rx_aead_ctx, uint8_t *rx_iv, 
@@ -875,6 +784,7 @@ int SrsQuicTransport::update_key(uint8_t *rx_secret, uint8_t *tx_secret,
 
 void SrsQuicTransport::notify_accept_stream(int64_t stream_id)
 {
+    srs_trace("notify stream %ld can accept now", stream_id);
     wait_accept_streams_.push_back(stream_id);
     srs_cond_signal(accept_stream_cond_);
 }
@@ -885,14 +795,16 @@ srs_error_t SrsQuicTransport::accept_stream(srs_utime_t timeout, int64_t& stream
         return srs_error_new(ERROR_QUIC_CLOSING, "quic conn in closing state");
     }
     
-    if (ngtcp2_conn_is_in_draining_period(conn_)) {
+    if (in_draininig() || ngtcp2_conn_is_in_draining_period(conn_)) {
         return srs_error_new(ERROR_QUIC_DRAINING, "quic conn in draning state");
     }
 
-    int ret = srs_cond_timedwait(accept_stream_cond_, timeout);
-    if (ret != 0) {
-        stream_id = -1;
-        return srs_error_new(ERROR_QUIC_TIMEOUT, "quic accept stream timeout");
+    if (wait_accept_streams_.empty()) {
+        int ret = srs_cond_timedwait(accept_stream_cond_, timeout);
+        if (ret != 0) {
+            stream_id = -1;
+            return srs_error_new(ERROR_QUIC_TIMEOUT, "quic accept stream timeout");
+        }
     }
 
     stream_id = wait_accept_streams_.front();
@@ -928,7 +840,7 @@ srs_error_t SrsQuicTransport::write_data()
         return srs_error_new(ERROR_QUIC_CLOSING, "quic conn in closing state");
     }
 
-    if (ngtcp2_conn_is_in_draining_period(conn_)) {
+    if (in_draininig() || ngtcp2_conn_is_in_draining_period(conn_)) {
         return srs_error_new(ERROR_QUIC_DRAINING, "quic conn in draining state");
     }
 
@@ -1019,7 +931,7 @@ srs_error_t SrsQuicTransport::enter_closing_period(int error_code)
         srs_freep(err);
     }
 
-    uint8_t buf[NGTCP2_MAX_PKTLEN_IPV4] = {0};
+    uint8_t buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE] = {0};
 
     int nwrite = ngtcp2_conn_write_connection_close(conn_, NULL, NULL, buf, sizeof(buf), 
             error_code, srs_get_system_time_for_quic());
@@ -1054,7 +966,7 @@ srs_error_t SrsQuicTransport::enter_draining_period()
     return err;
 }
 
-srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStreamBuffer* buffer)
+srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStreamWriteBuffer* buffer)
 {
     srs_error_t err = srs_success;
 
@@ -1068,25 +980,25 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
 
     while (true) {
         // No more stream data to write.
-        if (buffer && buffer->empty()) {
+        if (buffer && buffer->size_unsend() == 0) {
             break;
         }
 
         // Merge write, ngtcp2 will append multi small quic packet into one udp packet if possiblity.
         uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
 
-        if (buffer && ngtcp2_conn_get_max_data_left(conn_) < NGTCP2_MAX_PKTLEN_IPV4) {
+        if (buffer && ngtcp2_conn_get_max_data_left(conn_) < NGTCP2_MAX_UDP_PAYLOAD_SIZE) {
             return srs_error_new(ERROR_QUIC_AGAIN, "no data left in quic conn");
         }
 
-        const uint8_t* data = buffer ? buffer->data() : NULL;
-        size_t size = buffer ? buffer->sequent_size() : 0;
+        const uint8_t* data = buffer ? buffer->data_unsend() : NULL;
+        size_t size = buffer ? buffer->consecutive_size_unsend() : 0;
         ngtcp2_tstamp pkt_ts = srs_get_system_time_for_quic();
         int nwrite = ngtcp2_conn_write_stream(conn_, &path, NULL, udp_send_buffer_, udp_send_buffer_size_, 
                                               &ndatalen, flags, stream_id, data, size, pkt_ts);
 
+        ngtcp2_conn_update_pkt_tx_time(conn_, pkt_ts);
         if (nwrite == 0) {
-            ngtcp2_conn_update_pkt_tx_time(conn_, pkt_ts);
             return srs_error_new(ERROR_QUIC_AGAIN, "quic conn congested");
         }
 
@@ -1094,6 +1006,13 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
             switch (nwrite) {
                 // Write failed becasue stream flow control.
                 case NGTCP2_ERR_STREAM_DATA_BLOCKED: {
+                    if (http3_conn_) {
+                        int r0 = 0;
+                        if ((r0 = nghttp3_conn_block_stream(http3_conn_, stream_id)) != 0) {
+                            srs_error("nghttp3_conn_block_stream %ld failed, err=%s", 
+                                stream_id, nghttp3_strerror(r0));
+                        }
+                    }
                     return srs_error_new(ERROR_QUIC_AGAIN, "quic conn stream %ld block", stream_id);
                 }
                 // Write failed becasuse stream in half close(write direction).
@@ -1103,7 +1022,7 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
                 // Data has been cached, try merge write with next packet.
                 case NGTCP2_ERR_WRITE_MORE: {
                     if (buffer) {
-                        buffer->skip(ndatalen);
+                        buffer->sent(ndatalen);
                     }
                     continue;
                 }
@@ -1122,7 +1041,7 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
 
         if (ndatalen > 0) {
             if (buffer) {
-                buffer->skip(ndatalen);
+                buffer->sent(ndatalen);
             }
         }
 
@@ -1202,6 +1121,34 @@ srs_error_t SrsQuicTransport::open_stream(int64_t* stream_id)
     }
 
     SrsQuicStream* new_stream = new SrsQuicStream(*stream_id, SrsQuicStreamDirectionSendRecv, SrsQuicStreamStateOpened, this);
+    streams_.insert(make_pair(*stream_id, new_stream));
+
+    ngtcp2_conn_set_stream_user_data(conn_, *stream_id, (void*)new_stream);
+
+    srs_trace("quic conn %s open stream %ld success", get_conn_name().c_str(), *stream_id);
+
+    return err;
+}
+
+srs_error_t SrsQuicTransport::open_uni_stream(int64_t* stream_id)
+{
+    srs_error_t err = srs_success;
+
+    // We can't determine which stream_id to open, it's alloc by libngtcp2.
+    int ret = ngtcp2_conn_open_uni_stream(conn_, stream_id, this);
+    if (ret != 0) {
+        // open stream blocking means we reached limit of max_streams of bidi_stream.
+        if (ret == NGTCP2_ERR_STREAM_ID_BLOCKED) {
+            return srs_error_new(ERROR_QUIC_STREAM, "quic conn %s open stream blocked",
+                get_conn_name().c_str());
+        }
+        else if (ret == NGTCP2_ERR_NOMEM) {
+            return srs_error_new(ERROR_QUIC_STREAM, "quic conn %s open stream failed, out of memory",
+                get_conn_name().c_str());
+        }
+    }
+
+    SrsQuicStream* new_stream = new SrsQuicStream(*stream_id, SrsQuicStreamDirectionSendOnly, SrsQuicStreamStateOpened, this);
     streams_.insert(make_pair(*stream_id, new_stream));
 
     ngtcp2_conn_set_stream_user_data(conn_, *stream_id, (void*)new_stream);
@@ -1319,6 +1266,10 @@ srs_error_t SrsQuicTransport::read(int64_t stream_id, void* buf, int size, ssize
 {
     srs_error_t err = srs_success;
 
+    if (in_draininig()) {
+        return srs_error_new(ERROR_QUIC_CLOSED, "quic conn closed");
+    }
+
     SrsQuicStream* stream = find_stream(stream_id);
     if (stream == NULL) {
         return srs_error_new(ERROR_QUIC_BAD_STREAM, "can not found quic stream %ld", stream_id);
@@ -1334,6 +1285,10 @@ srs_error_t SrsQuicTransport::read(int64_t stream_id, void* buf, int size, ssize
 srs_error_t SrsQuicTransport::read_fully(int64_t stream_id, void* buf, int size, ssize_t* nb_read, srs_utime_t timeout)
 {
     srs_error_t err = srs_success;
+
+    if (in_draininig()) {
+        return srs_error_new(ERROR_QUIC_CLOSED, "quic conn closed");
+    }
 
     SrsQuicStream* stream = find_stream(stream_id);
     if (stream == NULL) {

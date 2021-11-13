@@ -102,7 +102,7 @@ ngtcp2_settings SrsQuicConnection::build_quic_settings(uint8_t* token, size_t to
     settings.initial_ts = srs_get_system_time_for_quic();
   	settings.token.base = token;
   	settings.token.len = tokenlen;
-  	settings.max_udp_payload_size = NGTCP2_MAX_PKTLEN_IPV4;
+  	settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
   	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
     return settings;
 }
@@ -135,7 +135,8 @@ int SrsQuicConnection::handshake_completed()
 
     uint8_t token[kMaxTokenLen];
     size_t tokenlen = sizeof(token);
-    if (quic_token_->generate_token(token, tokenlen, reinterpret_cast<const sockaddr*>(&remote_addr_)) != 0) {
+    if (quic_token_->generate_token(token, tokenlen, reinterpret_cast<const sockaddr*>(&remote_addr_), 
+                                    remote_addr_len_) != 0) {
         return 0;
     }
 
@@ -143,6 +144,10 @@ int SrsQuicConnection::handshake_completed()
     if (ret != 0) {
         srs_error("ngtcp2_conn_submit_new_token failed, ret=%d", ret);
         return -1;
+    }
+
+    if (listener_) {
+        listener_->on_accept_quic_conn(this);
     }
 
     return 0;

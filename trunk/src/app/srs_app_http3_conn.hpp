@@ -51,13 +51,16 @@
 
 #include <nghttp3/nghttp3.h>
 
+class SrsLiveReader;
 class SrsQuicConnection;
 class SrsHttp3StreamThread;
 
 // TODO: FIXME: rename it.
 // Process pull rtc stream requet, and send rtc stream over quic.
 class SrsHttp3QuicConn : public ISrsResource, virtual public ISrsCoroutineHandler
+                       , virtual public ISrsHourGlass
 {
+    friend class SrsHttp3StreamThread;
 public:
     SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn);
     ~SrsHttp3QuicConn();
@@ -70,6 +73,9 @@ private:
 public:
     virtual const SrsContextId& get_id();
     virtual std::string desc();
+// Interface for ISrsHourGlass
+public:
+    virtual srs_error_t notify(int event, srs_utime_t interval, srs_utime_t tick);
 private:
     srs_error_t accept_stream();
     void clean_zombie_stream_thread();
@@ -77,8 +83,12 @@ private:
     srs_error_t start_ctrl_stream_thread();
     srs_error_t start_qpack_enc_stream_thread();
     srs_error_t start_qpack_dec_stream_thread();
+    srs_error_t flush_h3_stream();
 public:
+    int begin_request_headers(int64_t stream_id);
+private:
     SrsSTCoroutine* trd_;
+    SrsHourGlass* timer_;
     SrsQuicServer* server_;
     SrsQuicConnection* quic_conn_;
     int64_t ctrl_stream_id_;
@@ -103,11 +113,56 @@ public:
     virtual srs_error_t cycle();
 private:
     srs_error_t do_cycle();
+public:
+    int end_request_headers();
+    int acked_stream_data(int64_t stream_id, uint64_t datalen);
+    int resume();
+    int recv_data(const uint8_t* data, size_t datalen);
+    int recv_header(int32_t token, nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags);
+    int read(void** buf, ssize_t* nb);
 private:
+    SrsHttp3QuicConn* conn_;
     SrsQuicConnection* quic_conn_;
     int64_t stream_id_;
     SrsSTCoroutine* trd_;
     srs_utime_t timeout_;
+
+private:
+    SrsLiveReader* live_reader_;
+};
+
+class SrsLiveReader : public ISrsCoroutineHandler, public ISrsLiveSourceHandler, public ISrsWriter
+{
+    friend class SrsHttp3StreamThread;
+public:
+    SrsLiveReader(SrsHttp3StreamThread* stream, SrsRequest* req);
+    ~SrsLiveReader();
+public:
+    srs_error_t start();
+
+// Interface for ISrsCoroutineHandler
+public:
+    virtual srs_error_t cycle();
+// Interface for ISrsLiveSourceHandler
+public:
+    virtual srs_error_t on_publish(SrsLiveSource* s, SrsRequest* r)  { return srs_success; }
+    virtual void on_unpublish(SrsLiveSource* s, SrsRequest* r) {}
+// Interface for ISrsWriter
+public:
+   	virtual srs_error_t write(void* buf, size_t size, ssize_t* nwrite);
+    virtual srs_error_t writev(const iovec *iov, int iov_size, ssize_t* nwrite);
+public:
+
+public:
+    int read(void** buf, ssize_t* nb);
+    int acked(uint64_t datalen);
+
+private:
+    SrsSTCoroutine* trd_;
+    SrsHttp3StreamThread* stream_;
+    SrsRequest* req_;
+
+    SrsQuicStreamWriteBuffer* buffer_;
 };
 
 #endif

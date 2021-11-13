@@ -208,7 +208,7 @@ srs_error_t SrsQuicIoLoop::send_version_negotiation(SrsUdpMuxSocket* skt, const 
         server_versions.push_back(v);
     }
 
-    char buf[NGTCP2_MAX_PKTLEN_IPV4];
+    char buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE];
     int nb = ngtcp2_pkt_write_version_negotiation(reinterpret_cast<uint8_t*>(buf), sizeof(buf), 
         (uint8_t)(random() % 256), dcid, dcid_len, scid, scid_len, server_versions.data(), server_versions.size());
     if (nb < 0) {
@@ -260,9 +260,12 @@ srs_error_t SrsQuicIoLoop::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener*
     }
 
     // Accept quic conn, and start state-thread run cycle of this quic conn.
-    if ((err = listener->on_accept_quic_conn(quic_conn)) != srs_success) {
-        srs_freep(quic_conn);
-        return srs_error_wrap(err, "on quic client failed");
+    // TODO: FIXME: bad code, accepted quic connection must be handshaked done.
+    if (false) {
+        if ((err = listener->on_accept_quic_conn(quic_conn)) != srs_success) {
+            srs_freep(quic_conn);
+            return srs_error_wrap(err, "on quic client failed");
+        }
     }
 
     string conn_id = quic_conn->get_scid();

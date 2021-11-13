@@ -83,20 +83,6 @@ uint32_t generate_reserved_version(const sockaddr *sa, socklen_t salen, uint32_t
     return h;
 }
 
-ngtcp2_crypto_aead crypto_aead_aes_128_gcm()
-{
-  	ngtcp2_crypto_aead aead;
-  	ngtcp2_crypto_aead_init(&aead, const_cast<EVP_CIPHER*>(EVP_aes_128_gcm()));
-  	return aead;
-}
-
-ngtcp2_crypto_md crypto_md_sha256()
-{
-  	ngtcp2_crypto_md md;
-  	ngtcp2_crypto_md_init(&md, const_cast<EVP_MD*>(EVP_sha256()));
-  	return md;
-}
-
 // libngtcp2 log callback function.
 void ngtcp2_log_handle(void *user_data, const char *fmt, ...) 
 {
@@ -172,40 +158,11 @@ srs_error_t SrsQuicToken::init()
 {
     srs_error_t err = srs_success;
 
-    token_aead_ = crypto_aead_aes_128_gcm();
-    token_md_ = crypto_md_sha256();
-
     if (generate_secret(static_secret_, sizeof(static_secret_)) != 0) {
         return srs_error_new(ERROR_QUIC_TOKEN, "generate token failed");
     }
 
     return err;
-}
-
-size_t SrsQuicToken::generate_token_addr(uint8_t *dest, size_t destlen, const sockaddr *sa) 
-{
-  	const uint8_t *addr = NULL;
-  	size_t addrlen = 0;
-
-  	switch (sa->sa_family) {
-        case AF_INET:
-          	addr = reinterpret_cast<const uint8_t*>(&reinterpret_cast<const sockaddr_in*>(sa)->sin_addr);
-          	addrlen = sizeof(reinterpret_cast<const sockaddr_in*>(sa)->sin_addr);
-          	break;
-        case AF_INET6:
-          	addr = reinterpret_cast<const uint8_t*>(&reinterpret_cast<const sockaddr_in6*>(sa)->sin6_addr);
-          	addrlen = sizeof(reinterpret_cast<const sockaddr_in6*>(sa)->sin6_addr);
-          	break;
-        default:
-	  	return -1;
-  	}
-
-    if (addr == NULL || addrlen > destlen) {
-        return -1;
-    }
-
-	memcpy(dest, addr, addrlen);
-    return addrlen;
 }
 
 int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen) 
@@ -233,71 +190,15 @@ int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen)
     return 0;
 }
 
-int SrsQuicToken::derive_token_key(uint8_t *key, size_t &keylen, uint8_t *iv,
-        size_t &ivlen, const uint8_t *rand_data, size_t rand_datalen) 
-{
-    uint8_t secret[32];
-
-  	if (ngtcp2_crypto_hkdf_extract(secret, &token_md_, static_secret_,
-  	        sizeof(static_secret_), rand_data, rand_datalen) != 0) {
-  	  	return -1;
-  	}
-
-  	keylen = ngtcp2_crypto_aead_keylen(&token_aead_);
-  	ivlen = ngtcp2_crypto_packet_protection_ivlen(&token_aead_);
-
-  	if (ngtcp2_crypto_derive_packet_protection_key(key, iv, NULL, &token_aead_,
-  	        &token_md_, secret, sizeof(secret)) != 0) {
-  	    return -1;
-  	}
-
-  	return 0;
-}
-
 // Generate token combine with `sa` to confirm client has validate ip addr.
-int SrsQuicToken::generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *sa) 
+int SrsQuicToken::generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *addr, size_t addrlen) 
 {
-    uint8_t plaintext[8];
-    uint64_t t = srs_get_system_time_for_quic();
-
-    uint8_t addr[256];
-    size_t addrlen = generate_token_addr(addr, sizeof(addr), sa);
-
-    uint8_t* p = plaintext;
-    memcpy(p, reinterpret_cast<uint8_t*>(&t), sizeof(t));
-    p += sizeof(t);
-
-    uint8_t rand_data[kTokenRandDatalen];
-    uint8_t key[32];
-    size_t keylen = sizeof(key);
-    uint8_t iv[32];
-    size_t ivlen = sizeof(iv);
-
-    srs_generate_rand_data(rand_data, sizeof(rand_data));
-
-    if (derive_token_key(key, keylen, iv, ivlen, rand_data, sizeof(rand_data)) != 0) {
+	int ret = ngtcp2_crypto_generate_regular_token(token, get_static_secret(), get_static_secret_len(), 
+                                                   addr, addrlen, srs_get_system_time_for_quic());
+    if (ret < 0) {
         return -1;
     }
 
-    size_t plaintextlen = sizeof(uint64_t); 
-    ngtcp2_crypto_aead_ctx aead_ctx;
-    if (ngtcp2_crypto_aead_ctx_encrypt_init(&aead_ctx, &token_aead_, key, ivlen) != 0) {
-        return -1;
-    }
-
-    token[0] = kTokenMagic;
-    int ret = ngtcp2_crypto_encrypt(token + 1, &token_aead_, &aead_ctx,
-        plaintext, plaintextlen, iv, ivlen, addr, addrlen);
-
-    ngtcp2_crypto_aead_ctx_free(&aead_ctx);
-
-    if (ret != 0) {
-        return -1;
-    }
-
-    tokenlen = 1 + plaintextlen + token_aead_.max_overhead;
-    memcpy(token + tokenlen, rand_data, sizeof(rand_data));
-    tokenlen += sizeof(rand_data);
-
+    tokenlen = ret;
     return 0;
 }

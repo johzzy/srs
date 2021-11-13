@@ -571,7 +571,7 @@ if [[ $SRS_SSL == YES && $SRS_USE_SYS_SSL != YES ]]; then
         OPENSSL_CANDIDATE="openssl-OpenSSL_1_0_2u" && OPENSSL_UNZIP="tar xf ../../3rdparty/$OPENSSL_CANDIDATE.tar.gz"
     elif [[ $SRS_QUIC == YES ]]; then
         OPENSSL_AR="$SRS_TOOL_AR"
-        OPENSSL_CANDIDATE="openssl-1.1.1g_quic-draft-33" && OPENSSL_UNZIP="unzip -q ../../3rdparty/$OPENSSL_CANDIDATE.zip"
+        OPENSSL_CANDIDATE="openssl-OpenSSL_1_1_1l-quic" && OPENSSL_UNZIP="unzip -q ../../3rdparty/$OPENSSL_CANDIDATE.zip"
     else
         OPENSSL_AR="$SRS_TOOL_AR"
         OPENSSL_CANDIDATE="openssl-1.1-fit" && OPENSSL_UNZIP="cp -R ../../3rdparty/$OPENSSL_CANDIDATE ."
@@ -729,7 +729,7 @@ if [[ $SRS_QUIC == YES ]]; then
         (
             ABS_OBJS=`pwd`/${SRS_OBJS} &&
             rm -rf ${SRS_OBJS}/${SRS_PLATFORM}/ngtcp2 && cd ${SRS_OBJS}/${SRS_PLATFORM} &&
-            unzip ../../3rdparty/ngtcp2-master.zip && cd ngtcp2-master &&
+            unzip ../../3rdparty/ngtcp2-main.zip && cd ngtcp2-main &&
             autoreconf -i && PKG_CONFIG_PATH="../../../objs/openssl/lib/pkgconfig" \
                 LDFLAGS="-Wl,-rpath,../../../objs/openssl/lib" ./configure \
                 --enable-lib-only --prefix=`pwd`/_release && make ${SRS_JOBS} && make install
@@ -738,7 +738,7 @@ if [[ $SRS_QUIC == YES ]]; then
     # check status
     ret=$?; if [[ $ret -ne 0 ]]; then echo "Build ngtcp2 failed, ret=$ret"; exit $ret; fi
     # Always update the links.
-    (cd ${SRS_OBJS} && rm -rf ngtcp2 && ln -sf ${SRS_PLATFORM}/ngtcp2-master/_release ngtcp2)
+    (cd ${SRS_OBJS} && rm -rf ngtcp2 && ln -sf ${SRS_PLATFORM}/ngtcp2-main/_release ngtcp2)
     if [ ! -f ${SRS_OBJS}/ngtcp2/lib/libngtcp2.a ]; then echo "Build ngtcp2 failed."; exit -1; fi
 fi
 

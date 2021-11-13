@@ -49,11 +49,11 @@ const string kDefaultCiphers =
 const string kDefaultGroups = "X25519:P-256:P-384:P-521";
 
 // TODO: FIXME: Currently hardcode, hq, h3 and other alpn must be set by application.
-const string kHqAlpnDraft29 = "\x5hq-29"; 
-const string kHqAlpnDraft30 = "\x5hq-30";
-const string kHqAlpnDraft31 = "\x5hq-31";
-const string kHqAlpnDraft32 = "\x5hq-32";
-const string kHqAlpnV1 = "\xahq-interop";
+const string kHqAlpnDraft29 = "\x5h3-29"; 
+const string kHqAlpnDraft30 = "\x5h3-30";
+const string kHqAlpnDraft31 = "\x5h3-31";
+const string kHqAlpnDraft32 = "\x5h3-32";
+const string kHqAlpnV1 = "\x2h3";
 const string kHqAlpn = kHqAlpnDraft29 + kHqAlpnDraft30 + kHqAlpnDraft31 + kHqAlpnDraft32 + kHqAlpnV1;
 
 const uint32_t QUIC_VER_DRAFT29 = 0xFF00001Du;

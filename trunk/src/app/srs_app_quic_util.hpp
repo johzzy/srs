@@ -61,11 +61,6 @@ const size_t kMaxTokenLen = 1 + sizeof(uint64_t) + 16 + kTokenRandDatalen;
 const int kServerCidLen = 10;
 const int kClientCidLen = 10;
 
-// Helper function to generate ngtcp2_crypto_aead.
-extern ngtcp2_crypto_aead crypto_aead_aes_128_gcm();
-// Helper function to generate ngtcp2_crypto_md.
-extern ngtcp2_crypto_md crypto_md_sha256();
-
 // Helper class to generate quic token to verify client has validate addr.
 class SrsQuicToken
 {
@@ -74,19 +69,13 @@ public:
     ~SrsQuicToken();
 public:
     srs_error_t init();
-    ngtcp2_crypto_aead token_aead() const { return token_aead_; }
-    ngtcp2_crypto_md token_md() const { return token_md_; }
     uint8_t* get_static_secret() { return static_secret_; }
     size_t get_static_secret_len() { return sizeof(static_secret_); }
 public:
-    size_t generate_token_addr(uint8_t *dest, size_t destlen, const sockaddr *sa);
     int generate_secret(uint8_t *secret, size_t secretlen);
-    int derive_token_key(uint8_t *key, size_t &keylen, uint8_t *iv, size_t &ivlen, const uint8_t *rand_data, size_t rand_datalen);
-    int generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *sa);
+    int generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *addr, size_t addrlen);
 
 private:
-    ngtcp2_crypto_aead token_aead_;
-    ngtcp2_crypto_md token_md_;
     uint8_t static_secret_[32];
 };
 
