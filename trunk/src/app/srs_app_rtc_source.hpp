@@ -311,7 +311,7 @@ public:
     SrsRtmpFromRtcBridge(SrsLiveSource *src);
     virtual ~SrsRtmpFromRtcBridge();
 public:
-    srs_error_t initialize(SrsRequest* r);
+    virtual srs_error_t initialize(SrsRequest* r);
 public:
     virtual srs_error_t on_publish();
     virtual srs_error_t on_rtp(SrsRtpPacket *pkt);
