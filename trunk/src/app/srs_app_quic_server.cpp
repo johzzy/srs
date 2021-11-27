@@ -80,7 +80,7 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
             return srs_error_wrap(err, "quic rtc_forward_quic_conn start failed");
         }
     } else if (type == SrsQuicListenerHttpApi) {
-        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn, _srs_hybrid->srs()->instance()->api_server(), NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);
@@ -89,7 +89,7 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
         // TODO: FIXME:  HTTP3 support.
     } else if (type == SrsQuicListenerHttpStream) {
         // TODO: FIXME:  HTTP3 support.
-        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn, _srs_hybrid->srs()->instance()->get_http_server(), NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);
@@ -97,7 +97,7 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListen
         }
         // TODO: FIXME:  HTTP3 support.
     } else {
-        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn);
+        SrsHttp3QuicConn* h3_conn = new SrsHttp3QuicConn(this, conn, NULL, NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);

@@ -358,6 +358,7 @@ public:
     virtual srs_error_t accept_client(SrsListenerType type, srs_netfd_t stfd);
     // TODO: FIXME: Fetch from hybrid server manager.
     virtual SrsHttpServeMux* api_server();
+    virtual SrsHttpServer* get_http_server();
 private:
     virtual srs_error_t fd_to_resource(SrsListenerType type, srs_netfd_t stfd, ISrsStartableConneciton** pr);
 // Interface ISrsResourceManager

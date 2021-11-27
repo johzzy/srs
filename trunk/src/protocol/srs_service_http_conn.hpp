@@ -201,27 +201,27 @@ public:
 // Response writer use st socket
 class SrsHttpResponseWriter : public ISrsHttpResponseWriter
 {
-private:
+protected:
     ISrsProtocolReadWriter* skt;
     SrsHttpHeader* hdr;
     // Before writing header, there is a chance to filter it,
     // such as remove some headers or inject new.
     ISrsHttpHeaderFilter* hf;
-private:
+protected:
     char header_cache[SRS_HTTP_HEADER_CACHE_SIZE];
     iovec* iovss_cache;
     int nb_iovss_cache;
-private:
+protected:
     // Reply header has been (logically) written
     bool header_wrote;
     // The status code passed to WriteHeader
     int status;
-private:
+protected:
     // The explicitly-declared Content-Length; or -1
     int64_t content_length;
     // The number of bytes written in body
     int64_t written;
-private:
+protected:
     // The wroteHeader tells whether the header's been written to "the
     // wire" (or rather: w.conn.buf). this is unlike
     // (*response).wroteHeader, which tells only whether it was

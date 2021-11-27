@@ -55,6 +55,35 @@ using namespace std;
 #include <srs_app_quic_client.hpp>
 #include <srs_app_quic_conn.hpp>
 
+static nghttp3_nv make_http3_header(const std::string& key, const std::string& value) 
+{
+    nghttp3_nv nv;
+    nv.name = (uint8_t*)key.data();
+    nv.value = (uint8_t*)value.data();
+    nv.namelen = key.size();
+    nv.valuelen = value.size();
+    nv.flags = NGHTTP3_NV_FLAG_NONE;
+    return nv;
+}
+
+static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
+                             size_t veccnt, uint32_t *pflags, void *user_data,
+                             void *stream_user_data) 
+{
+    SrsHttp3StreamThread* http3_stream = static_cast<SrsHttp3StreamThread*>(stream_user_data);
+    void* buf = NULL;
+    ssize_t nb = 0;
+    int ret = http3_stream->dump_data(&buf, &nb);
+    if (ret == 0) {
+        return NGHTTP3_ERR_WOULDBLOCK;
+    }
+
+    vec[0].base = (uint8_t*)buf;
+    vec[0].len = nb;
+    return 1;
+}
+
+
 int cb_http3_acked_stream_data(nghttp3_conn *conn, int64_t stream_id,
                               size_t datalen, void *conn_user_data,
                               void *stream_user_data) 
@@ -194,8 +223,11 @@ int cb_http3_reset_stream(nghttp3_conn *conn, int64_t stream_id,
     return 0;
 }
 
-SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn)
+SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler)
 {
+    http_mux_ = http_mux;
+    handler_ = handler;
+
     server_ = server;
     quic_conn_ = quic_conn;
     trd_ = NULL;
@@ -481,6 +513,7 @@ srs_error_t SrsHttp3QuicConn::flush_h3_stream()
                 return srs_error_wrap(err, "quic conn write failed");
             }
 
+            // srs_trace("@john, try send stream_id=%ld %d bytes, nb=%d", stream_id, vec[i].len, nb);
             srs_assert(nb >= 0);
             nghttp3_conn_add_write_offset(http3_conn_, stream_id, nb);
         }
@@ -489,8 +522,72 @@ srs_error_t SrsHttp3QuicConn::flush_h3_stream()
     return err;
 }
 
+SrsHttp3ResponseWriter::SrsHttp3ResponseWriter(SrsHttp3StreamThread* stream, ISrsProtocolReadWriter* io)
+    : SrsHttpResponseWriter(io)
+    , http3_stream_(stream)
+{
+}
+
+SrsHttp3ResponseWriter::~SrsHttp3ResponseWriter()
+{
+}
+
+srs_error_t SrsHttp3ResponseWriter::send_header(char* data, int size)
+{
+    srs_error_t err = srs_success;
+    
+    if (header_sent) {
+        return err;
+    }
+    header_sent = true;
+    
+    // detect content type
+    if (srs_go_http_body_allowd(status)) {
+        if (data && hdr->content_type().empty()) {
+            hdr->set_content_type(srs_go_http_detect(data, size));
+        }
+    }
+    
+    // set server if not set.
+    if (hdr->get("Server").empty()) {
+        hdr->set("Server", RTMP_SIG_SRS_SERVER);
+    }
+    
+    // Filter the header before writing it.
+    if (hf && ((err = hf->filter(hdr)) != srs_success)) {
+        return srs_error_wrap(err, "filter header");
+    }
+
+    vector<nghttp3_nv> http3_rsp_headers;
+
+    std::map<std::string, std::string> headers = hdr->get_headers();
+    std::stringstream ss;
+    ss << status;
+    http3_rsp_headers.push_back(make_http3_header(":status", ss.str()));
+    srs_trace("status=%d", status);
+    for (std::map<std::string, std::string>::iterator iter = headers.begin(); iter != headers.end(); ++iter) {
+        http3_rsp_headers.push_back(make_http3_header(iter->first, iter->second));
+        srs_trace("http rsp header %s=%s", iter->first.c_str(), iter->second.c_str());
+    }
+
+    nghttp3_data_reader dr;
+    dr.read_data = dump_http3_data;
+    int ret = 0;
+    if ((ret = nghttp3_conn_submit_response(http3_stream_->conn_->http3_conn_, http3_stream_->stream_id_, http3_rsp_headers.data(), 
+                                            http3_rsp_headers.size(), &dr)) != 0) {
+        return srs_error_new(ERROR_HTTP3, "nghttp3_conn_submit_response failed, ret=%d, err=%s", ret, nghttp3_strerror(ret));
+    }
+
+    srs_trace("stream_id=%ld http3 submit ret=%d", http3_stream_->stream_id_, ret);
+
+    return err;
+}
+
 SrsHttp3StreamThread::SrsHttp3StreamThread(SrsHttp3QuicConn* conn, int64_t stream_id)
 {
+    header_completed_ = false;
+    cors_ = new SrsHttpCorsMux();
+
     trd_ = NULL;
 
     conn_ = conn;
@@ -499,13 +596,14 @@ SrsHttp3StreamThread::SrsHttp3StreamThread(SrsHttp3QuicConn* conn, int64_t strea
 
     timeout_ = 1 * SRS_UTIME_SECONDS;
 
-    live_reader_ = NULL;
+    buffer_ = new SrsQuicStreamWriteBuffer(8 * 1024 * 1024);
 }
 
 SrsHttp3StreamThread::~SrsHttp3StreamThread()
 {
+    srs_freep(cors_);
     srs_freep(trd_);
-    srs_freep(live_reader_);
+    srs_freep(buffer_);
 }
 
 srs_error_t SrsHttp3StreamThread::start()
@@ -515,6 +613,13 @@ srs_error_t SrsHttp3StreamThread::start()
     trd_ = new SrsSTCoroutine("http3_quic_stream_thread", this);
     if ((err = trd_->start()) != srs_success) {
         return srs_error_wrap(err, "start http3 stream thread failed");
+    }
+
+    // initialize the cors, which will proxy to mux.
+    // TODO: FIXME:
+    bool v = true;
+    if ((err = cors_->initialize(conn_->http_mux_, v)) != srs_success) {
+        return srs_error_wrap(err, "init cors");
     }
 
     return err;
@@ -563,94 +668,44 @@ srs_error_t SrsHttp3StreamThread::do_cycle()
         if (nconsumed < 0) {
             return srs_error_new(ERROR_HTTP3, "nghttp3_conn_read_stream failed, err=%s", nghttp3_strerror(nconsumed));
         }
+
+        srs_trace("stream_id=%ld, header_completed %d", stream_id_, header_completed_);
+        if (header_completed_) {
+            SrsHttp3ResponseWriter writer(this, this);
+            // TODO: FIXME:
+            process_request(&writer, &msg_);
+        }
     }
 
     return err;
 }
 
-static std::string http3_rsp(1024*1024*64, 'x');
-
-nghttp3_ssize read_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
-                        size_t veccnt, uint32_t *pflags, void *user_data,
-                        void *stream_user_data) 
+srs_error_t SrsHttp3StreamThread::process_request(ISrsHttpResponseWriter* w, ISrsHttpMessage* r)
 {
-  	vec[0].base = (uint8_t*)(http3_rsp.data());
-  	vec[0].len = http3_rsp.size();
-
-  	*pflags |= NGHTTP3_DATA_FLAG_EOF;
-
-  	return 1;
-}
-
-nghttp3_ssize read_live_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec,
-                             size_t veccnt, uint32_t *pflags, void *user_data,
-                             void *stream_user_data) 
-{
-    SrsHttp3StreamThread* http3_stream = static_cast<SrsHttp3StreamThread*>(stream_user_data);
-    void* buf = NULL;
-    ssize_t nb = 0;
-    int ret = http3_stream->read(&buf, &nb);
-    if (ret == 0) {
-        return NGHTTP3_ERR_WOULDBLOCK;
+    srs_error_t err = srs_success;
+    
+    /*
+    srs_trace("HTTP #%d %s:%d %s %s, content-length=%" PRId64 "", rid, ip.c_str(), port,
+        r->method_str().c_str(), r->url().c_str(), r->content_length());
+    */
+    
+    // use cors server mux to serve http request, which will proxy to http_remux.
+    if ((err = cors_->serve_http(w, r)) != srs_success) {
+        return srs_error_wrap(err, "mux serve");
     }
-
-    vec[0].base = (uint8_t*)buf;
-    vec[0].len = nb;
-    return 1;
-}
-
-static nghttp3_nv make_http3_header(const std::string& key, const std::string& value) 
-{
-    nghttp3_nv nv;
-    nv.name = (uint8_t*)key.data();
-    nv.value = (uint8_t*)value.data();
-    nv.namelen = key.size();
-    nv.valuelen = value.size();
-    nv.flags = NGHTTP3_NV_FLAG_NONE;
-    return nv;
+    
+    return err;
 }
 
 int SrsHttp3StreamThread::end_request_headers()
 {
-    nghttp3_data_reader dr;
-    string content_type = "text/plain";
-    int64_t content_length = http3_rsp.size();
-    static bool dynamic = true;
-    if (! dynamic) {
-        dr.read_data = read_data;
-    } else {
-        content_type = "application/octet-stream";
-        content_length = -1;
-        dr.read_data = read_live_data;
-        SrsRequest req;
-        req.vhost = SRS_CONSTS_RTMP_DEFAULT_VHOST;
-        req.app = "live";
-        req.stream = "livestream";
-        live_reader_ = new SrsLiveReader(this, &req);
-        srs_error_t err = live_reader_->start();
-        if (err != srs_success) {
-            srs_error("start live reader failed, err=%s", srs_error_desc(err).c_str());
-            srs_freep(err);
-            return -1;
-        }
-    }
+    srs_trace("stream=%ld, header complete", stream_id_);
+    header_completed_ = true;
 
-    vector<nghttp3_nv> http3_rsp_headers;
-    http3_rsp_headers.push_back(make_http3_header(":status", "200"));
-    http3_rsp_headers.push_back(make_http3_header("server", "SRS"));
-    http3_rsp_headers.push_back(make_http3_header("content-type", content_type));
-    if (content_length > 0) {
-        http3_rsp_headers.push_back(make_http3_header("content-length", std::to_string(content_length)));
-    }
-
-    int ret = 0;
-    if ((ret = nghttp3_conn_submit_response(conn_->http3_conn_, stream_id_, http3_rsp_headers.data(), 
-                                            http3_rsp_headers.size(), &dr)) != 0) {
-        srs_error("nghttp3_conn_submit_response failed, ret=%d, err=%s", ret, nghttp3_strerror(ret));
-        return -1;
-    }
-
-    srs_trace("http3 submit ret=%d", ret);
+    // TODO: FIXME:
+    // msg->set_basic(hp_header.type, hp_header.method, hp_header.status_code, hp_header.content_length);
+    msg_.set_header(&header_, 0);
+    msg_.set_connection(this);
 
     return 0;
 }
@@ -660,7 +715,8 @@ int SrsHttp3StreamThread::acked_stream_data(int64_t stream_id, uint64_t datalen)
     nghttp3_conn_resume_stream(conn_->http3_conn_, stream_id);
     // resume();
 
-    live_reader_->acked(datalen);
+    int nb = buffer_->acked(datalen);
+    srs_assert(nb == (int)datalen);
 
     return 0;
 }
@@ -677,150 +733,111 @@ int SrsHttp3StreamThread::recv_data(const uint8_t* data, size_t datalen)
 
 int SrsHttp3StreamThread::recv_header(int32_t token, nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags) 
 {
+	nghttp3_vec n = nghttp3_rcbuf_get_buf(name);
 	nghttp3_vec v = nghttp3_rcbuf_get_buf(value);
 
+    std::string field_name(n.base, n.base + n.len);
+    std::string field_value(v.base, v.base + v.len);
+    srs_trace("field %s=%s", field_name.c_str(), field_value.c_str());
     switch (token) {
         case NGHTTP3_QPACK_TOKEN__PATH:
-            srs_trace("@john #h3, uri=%s", std::string(v.base, v.base + v.len).c_str());
+            srs_trace("@john #h3, uri=%s", field_value.c_str());
+            msg_.set_url(field_value, false);
             break;
         case NGHTTP3_QPACK_TOKEN__METHOD:
-            srs_trace("@john #h3, method=%s", std::string(v.base, v.base + v.len).c_str());
+            srs_trace("@john #h3, method=%s", field_value.c_str());
             break;
         case NGHTTP3_QPACK_TOKEN__AUTHORITY:
-            srs_trace("@john #h3, authority=%s", std::string(v.base, v.base + v.len).c_str());
+            srs_trace("@john #h3, authority=%s", field_value.c_str());
             break;
         default:
+            header_.set(field_name, field_value);
             break;
     }
 
     return 0;
 }
 
-int SrsHttp3StreamThread::read(void** buf, ssize_t* nb)
+int SrsHttp3StreamThread::dump_data(void** buf, ssize_t* nb)
 {
-    return live_reader_->read(buf, nb);
-}
-
-SrsLiveReader::SrsLiveReader(SrsHttp3StreamThread* stream, SrsRequest* req)
-{
-    req_ = req->copy();
-    stream_ = stream;
-    buffer_ = new SrsQuicStreamWriteBuffer(8 * 1024 * 1024);
-}
-
-SrsLiveReader::~SrsLiveReader()
-{
-    srs_freep(trd_);
-    srs_freep(req_);
-    srs_freep(buffer_);
-}
-
-srs_error_t SrsLiveReader::start()
-{
-    srs_error_t err = srs_success;
-    trd_ = new SrsSTCoroutine("h3_read_live", this);
-    if ((err = trd_->start()) != srs_success) {
-        return srs_error_wrap(err, "start http3 read live thread failed");
-    }
-    return err;
-}
-
-srs_error_t SrsLiveReader::cycle()
-{
-    srs_error_t err = srs_success;
-
-	SrsLiveSource* live_source = NULL;
-    if ((err = _srs_sources->fetch_or_create(req_, this, &live_source)) != srs_success) {
-        return srs_error_wrap(err, "create live_source");
-    }
-    
-    srs_trace("h3 flv: source url=%s, source_id=%s/%s",
-        req_->get_stream_url().c_str(), live_source->source_id().c_str(), live_source->pre_source_id().c_str());
-
-    SrsLiveConsumer* live_consumer = new SrsLiveConsumer(live_source);
-    SrsAutoFree(SrsLiveConsumer, live_consumer);
-
-    if ((err = live_source->create_consumer(live_consumer)) != srs_success) {
-        return srs_error_wrap(err, "create consumer failed");
-    }
-
-    if ((err = live_source->consumer_dumps(live_consumer)) != srs_success) {
-        return srs_error_wrap(err, "consumer dumps failed");
-    }
-
-    SrsFlvTransmuxer* enc = new SrsFlvTransmuxer();
-    SrsAutoFree(SrsFlvTransmuxer, enc);
-
-    if ((err = enc->initialize(this)) != srs_success) {
-        return srs_error_wrap(err, "initialize flv transmux");
-    }
-
-    int count = 0;
-	SrsMessageArray msgs(SRS_PERF_MW_MSGS);
-
-    bool flv_header_writed = false;
-
-    while (true) {
-        if ((err = trd_->pull()) != srs_success) {
-            return srs_error_wrap(err, "http3 quic conn thread failed");
-        }
-
-        if ((err = live_consumer->dump_packets(&msgs, count)) != srs_success) {
-            return srs_error_wrap(err, "consumer dump packets");
-        }
-
-        if (count <= 0) {
-            srs_usleep(100 * SRS_UTIME_MILLISECONDS);
-            continue;
-        }
-
-        if (! flv_header_writed) {
-            flv_header_writed = true;
-            enc->write_header(true, true);
-        }
-
-        for (int i = 0; i < count; i++) {
-            SrsSharedPtrMessage* msg = msgs.msgs[i];
-            
-            if (msg->is_audio()) {
-                err = enc->write_audio(msg->timestamp, msg->payload, msg->size);
-            } else if (msg->is_video()) {
-                err = enc->write_video(msg->timestamp, msg->payload, msg->size);
-            } else {
-                err = enc->write_metadata(msg->timestamp, msg->payload, msg->size);
-            }
-            
-            if (err != srs_success) {
-                srs_error("send messages failed, err=%s", srs_error_desc(err).c_str());
-                srs_freep(err);
-            }
-            srs_freep(msg);
-        }
-    }
-
-    return err;
-}
-
-srs_error_t SrsLiveReader::write(void* buf, size_t size, ssize_t* nwrite) 
-{
-    srs_error_t err = srs_success;
     if (buffer_->size_unsend() == 0) {
-        stream_->resume();
+        return 0;
+    }
+
+    ssize_t size_to_write = srs_min(64 * 1024, buffer_->consecutive_size_unsend());
+
+    *buf = buffer_->data_unsend();
+    *nb = size_to_write;
+
+    srs_trace("stream_id=%ld, dump %d bytes", stream_id_, size_to_write);
+    
+    buffer_->sent(size_to_write);
+
+    return 1;
+}
+
+void SrsHttp3StreamThread::set_recv_timeout(srs_utime_t tm)
+{
+}
+
+srs_utime_t SrsHttp3StreamThread::get_recv_timeout()
+{
+    return timeout_;
+}
+
+srs_error_t SrsHttp3StreamThread::read_fully(void* buf, size_t size, ssize_t* nread)
+{
+    return quic_conn_->read_fully(stream_id_, buf, size, nread, timeout_);
+}
+
+int64_t SrsHttp3StreamThread::get_recv_bytes()
+{
+    // TODO: FIXME:
+    return 0;
+}
+
+int64_t SrsHttp3StreamThread::get_send_bytes()
+{
+    // TODO: FIXME:
+    return 0;
+}
+
+srs_error_t SrsHttp3StreamThread::read(void* buf, size_t size, ssize_t* nread)
+{
+    return quic_conn_->read(stream_id_, buf, size, nread, timeout_);
+}
+
+void SrsHttp3StreamThread::set_send_timeout(srs_utime_t tm)
+{
+}
+
+srs_utime_t SrsHttp3StreamThread::get_send_timeout()
+{
+    return timeout_;
+}
+
+srs_error_t SrsHttp3StreamThread::write(void* buf, size_t size, ssize_t* nwrite)
+{
+    srs_error_t err = srs_success;
+
+    if (buffer_->size_unsend() == 0) {
+        resume();
     }
 
     int nb = buffer_->write(buf, size);
     if (nwrite) {
         *nwrite = nb;
     }
+
     return err;
 }
 
-srs_error_t SrsLiveReader::writev(const iovec *iov, int iov_size, ssize_t* nwrite)
+srs_error_t SrsHttp3StreamThread::writev(const iovec *iov, int iov_size, ssize_t* nwrite)
 {
     srs_error_t err = srs_success;
 
     if (buffer_->size_unsend() == 0) {
-        stream_->resume();
+        resume();
     }
 
     int nb = 0;
@@ -839,25 +856,17 @@ srs_error_t SrsLiveReader::writev(const iovec *iov, int iov_size, ssize_t* nwrit
     return err;
 }
 
-int SrsLiveReader::read(void** buf, ssize_t* nb)
+const SrsContextId& SrsHttp3StreamThread::get_id()
 {
-    if (buffer_->size_unsend() == 0) {
-        return 0;
-    }
-
-    ssize_t size_to_write = srs_min(64 * 1024, buffer_->consecutive_size_unsend());
-
-    *buf = buffer_->data_unsend();
-    *nb = size_to_write;
-    
-    buffer_->sent(size_to_write);
-
-    return 1;
+    return _srs_context->get_id(); 
 }
 
-int SrsLiveReader::acked(uint64_t datalen)
+std::string SrsHttp3StreamThread::desc() 
+{ 
+    return "h3"; 
+}
+
+std::string SrsHttp3StreamThread::remote_ip() 
 {
-    int nb = buffer_->acked(datalen);
-    srs_assert(nb == (int)datalen);
-    return 0;
+    return "0.0.0.0"; 
 }

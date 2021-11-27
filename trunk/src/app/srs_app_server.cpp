@@ -1579,6 +1579,11 @@ SrsHttpServeMux* SrsServer::api_server()
     return http_api_mux;
 }
 
+SrsHttpServer* SrsServer::get_http_server()
+{
+    return http_server;
+}
+
 srs_error_t SrsServer::fd_to_resource(SrsListenerType type, srs_netfd_t stfd, ISrsStartableConneciton** pr)
 {
     srs_error_t err = srs_success;

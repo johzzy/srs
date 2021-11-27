@@ -180,6 +180,11 @@ int SrsHttpHeader::count()
     return (int)headers.size();
 }
 
+std::map<std::string, std::string> SrsHttpHeader::get_headers()
+{
+    return headers;
+}
+
 void SrsHttpHeader::dumps(SrsJsonObject* o)
 {
     map<string, string>::iterator it;

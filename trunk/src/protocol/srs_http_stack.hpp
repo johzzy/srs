@@ -110,6 +110,8 @@ public:
     virtual void del(std::string);
     // Get the count of headers.
     virtual int count();
+    // Get headers.
+    virtual std::map<std::string, std::string> get_headers();
 public:
     // Dumps to a JSON object.
     virtual void dumps(SrsJsonObject* o);

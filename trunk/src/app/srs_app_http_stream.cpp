@@ -528,7 +528,15 @@ srs_error_t SrsLiveStream::serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage
         return srs_error_wrap(err, "http hook");
     }
     
-    err = do_serve_http(w, r);
+    SrsHttpMessage* hr = dynamic_cast<SrsHttpMessage*>(r);
+    SrsHttpConn* hc = dynamic_cast<SrsHttpConn*>(hr->connection());
+    SrsHttp3StreamThread* h3c = dynamic_cast<SrsHttp3StreamThread*>(hr->connection());
+
+    if (hc) {
+        err = do_serve_http(w, r);
+    } else if (h3c) {
+        err = do_serve_http3(w, r);
+    }
     
     http_hooks_on_stop(r);
     
@@ -646,6 +654,134 @@ srs_error_t SrsLiveStream::do_serve_http(ISrsHttpResponseWriter* w, ISrsHttpMess
             return srs_error_wrap(err, "recv thread");
         }
 
+        pprint->elapse();
+
+        // get messages from consumer.
+        // each msg in msgs.msgs must be free, for the SrsMessageArray never free them.
+        int count = 0;
+        if ((err = consumer->dump_packets(&msgs, count)) != srs_success) {
+            return srs_error_wrap(err, "consumer dump packets");
+        }
+
+        // TODO: FIXME: Support merged-write wait.
+        if (count <= 0) {
+            // Directly use sleep, donot use consumer wait, because we couldn't awake consumer.
+            srs_usleep(mw_sleep);
+            // ignore when nothing got.
+            continue;
+        }
+        
+        if (pprint->can_print()) {
+            srs_trace("-> " SRS_CONSTS_LOG_HTTP_STREAM " http: got %d msgs, age=%d, min=%d, mw=%d",
+                count, pprint->age(), SRS_PERF_MW_MIN_MSGS, srsu2msi(mw_sleep));
+        }
+        
+        // sendout all messages.
+        if (ffe) {
+            err = ffe->write_tags(msgs.msgs, count);
+        } else {
+            err = streaming_send_messages(enc, msgs.msgs, count);
+        }
+
+        // TODO: FIXME: Update the stat.
+
+        // free the messages.
+        for (int i = 0; i < count; i++) {
+            SrsSharedPtrMessage* msg = msgs.msgs[i];
+            srs_freep(msg);
+        }
+        
+        // check send error code.
+        if (err != srs_success) {
+            return srs_error_wrap(err, "send messages");
+        }
+    }
+
+    // Here, the entry is disabled by encoder un-publishing or reloading,
+    // so we must return a io.EOF error to disconnect the client, or the client will never quit.
+    return srs_error_new(ERROR_HTTP_STREAM_EOF, "Stream EOF");
+}
+
+srs_error_t SrsLiveStream::do_serve_http3(ISrsHttpResponseWriter* w, ISrsHttpMessage* r)
+{
+    srs_error_t err = srs_success;
+    
+    string enc_desc;
+    ISrsBufferEncoder* enc = NULL;
+    
+    srs_assert(entry);
+    if (srs_string_ends_with(entry->pattern, ".flv")) {
+        w->header()->set_content_type("video/x-flv");
+        enc_desc = "FLV";
+        enc = new SrsFlvStreamEncoder();
+    } else if (srs_string_ends_with(entry->pattern, ".aac")) {
+        w->header()->set_content_type("audio/x-aac");
+        enc_desc = "AAC";
+        enc = new SrsAacStreamEncoder();
+    } else if (srs_string_ends_with(entry->pattern, ".mp3")) {
+        w->header()->set_content_type("audio/mpeg");
+        enc_desc = "MP3";
+        enc = new SrsMp3StreamEncoder();
+    } else if (srs_string_ends_with(entry->pattern, ".ts")) {
+        w->header()->set_content_type("video/MP2T");
+        enc_desc = "TS";
+        enc = new SrsTsStreamEncoder();
+    } else {
+        return srs_error_new(ERROR_HTTP_LIVE_STREAM_EXT, "invalid pattern=%s", entry->pattern.c_str());
+    }
+    SrsAutoFree(ISrsBufferEncoder, enc);
+
+    // Enter chunked mode, because we didn't set the content-length.
+    w->write_header(SRS_CONSTS_HTTP_OK);
+    
+    // create consumer of souce, ignore gop cache, use the audio gop cache.
+    SrsLiveConsumer* consumer = NULL;
+    SrsAutoFree(SrsLiveConsumer, consumer);
+    if ((err = source->create_consumer(consumer)) != srs_success) {
+        return srs_error_wrap(err, "create consumer");
+    }
+    if ((err = source->consumer_dumps(consumer, true, true, !enc->has_cache())) != srs_success) {
+        return srs_error_wrap(err, "dumps consumer");
+    }
+
+    SrsPithyPrint* pprint = SrsPithyPrint::create_http_stream();
+    SrsAutoFree(SrsPithyPrint, pprint);
+    
+    SrsMessageArray msgs(SRS_PERF_MW_MSGS);
+
+    // update the statistic when source disconveried.
+    // TODO: FIXME:
+    if (false) {
+        SrsStatistic* stat = SrsStatistic::instance();
+        if ((err = stat->on_client(_srs_context->get_id().c_str(), req, NULL, SrsRtmpConnPlay)) != srs_success) {
+            return srs_error_wrap(err, "stat on client");
+        }
+    }
+    
+    // the memory writer.
+    SrsBufferWriter writer(w);
+    if ((err = enc->initialize(&writer, cache)) != srs_success) {
+        return srs_error_wrap(err, "init encoder");
+    }
+    
+    // if gop cache enabled for encoder, dump to consumer.
+    if (enc->has_cache()) {
+        if ((err = enc->dump_cache(consumer, source->jitter())) != srs_success) {
+            return srs_error_wrap(err, "encoder dump cache");
+        }
+    }
+
+    // Try to use fast flv encoder, remember that it maybe NULL.
+    SrsFlvStreamEncoder* ffe = dynamic_cast<SrsFlvStreamEncoder*>(enc);
+
+    srs_utime_t mw_sleep = _srs_config->get_mw_sleep(req->vhost);
+
+    srs_trace("FLV %s, encoder=%s, cache=%d, msgs=%d",
+        entry->pattern.c_str(), enc_desc.c_str(), enc->has_cache(), msgs.max);
+
+    // TODO: free and erase the disabled entry after all related connections is closed.
+    // TODO: FXIME: Support timeout for player, quit infinite-loop.
+    while (entry->enabled) {
         pprint->elapse();
 
         // get messages from consumer.
