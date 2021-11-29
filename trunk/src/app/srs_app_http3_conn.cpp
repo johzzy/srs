@@ -712,9 +712,6 @@ int SrsHttp3StreamThread::end_request_headers()
 
 int SrsHttp3StreamThread::acked_stream_data(int64_t stream_id, uint64_t datalen)
 {
-    nghttp3_conn_resume_stream(conn_->http3_conn_, stream_id);
-    // resume();
-
     int nb = buffer_->acked(datalen);
     srs_assert(nb == (int)datalen);
 
@@ -769,8 +766,6 @@ int SrsHttp3StreamThread::dump_data(void** buf, ssize_t* nb)
     *buf = buffer_->data_unsend();
     *nb = size_to_write;
 
-    srs_trace("stream_id=%ld, dump %d bytes", stream_id_, size_to_write);
-    
     buffer_->sent(size_to_write);
 
     return 1;
