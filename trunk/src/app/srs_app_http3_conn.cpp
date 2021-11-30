@@ -526,6 +526,7 @@ SrsHttp3ResponseWriter::SrsHttp3ResponseWriter(SrsHttp3StreamThread* stream, ISr
     : SrsHttpResponseWriter(io)
     , http3_stream_(stream)
 {
+    set_chunked(false);
 }
 
 SrsHttp3ResponseWriter::~SrsHttp3ResponseWriter()

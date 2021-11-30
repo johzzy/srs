@@ -216,6 +216,8 @@ protected:
     bool header_wrote;
     // The status code passed to WriteHeader
     int status;
+    // Chunked transport
+    bool chunked_;
 protected:
     // The explicitly-declared Content-Length; or -1
     int64_t content_length;
@@ -230,6 +232,8 @@ protected:
 public:
     SrsHttpResponseWriter(ISrsProtocolReadWriter* io);
     virtual ~SrsHttpResponseWriter();
+public:
+    void set_chunked(bool chunked) { chunked_ = chunked; }
 public:
     virtual srs_error_t final_request();
     virtual SrsHttpHeader* header();
