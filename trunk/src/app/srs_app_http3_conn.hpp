@@ -112,6 +112,7 @@ public:
     SrsHttp3ResponseWriter(SrsHttp3StreamThread* stream, ISrsProtocolReadWriter* io);
     virtual ~SrsHttp3ResponseWriter();
 public:
+    virtual srs_error_t final_request();
     virtual srs_error_t send_header(char* data, int size);
 private:
     SrsHttp3StreamThread* http3_stream_;
@@ -140,7 +141,7 @@ public:
     int recv_data(const uint8_t* data, size_t datalen);
     int recv_header(int32_t token, nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags);
     int read(void** buf, ssize_t* nb);
-    int dump_data(void** buf, ssize_t* nb);
+    int dump_data(void** buf, ssize_t* nb, bool& eof);
 // Interface ISrsProtocolReadWriter
 public:
     virtual void set_recv_timeout(srs_utime_t tm);
@@ -160,6 +161,7 @@ public:
 
 private:
     bool header_completed_;
+    bool data_eof_;
     SrsHttpCorsMux* cors_;
     SrsHttpMessage msg_;
     SrsHttpHeader header_;

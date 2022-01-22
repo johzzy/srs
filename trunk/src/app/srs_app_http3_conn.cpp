@@ -73,9 +73,15 @@ static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id, nght
     SrsHttp3StreamThread* http3_stream = static_cast<SrsHttp3StreamThread*>(stream_user_data);
     void* buf = NULL;
     ssize_t nb = 0;
-    int ret = http3_stream->dump_data(&buf, &nb);
+    bool eof = false;
+    int ret = http3_stream->dump_data(&buf, &nb, eof);
+    srs_trace("@john dump %d bytes, eof=%d", nb, eof);
     if (ret == 0) {
         return NGHTTP3_ERR_WOULDBLOCK;
+    }
+
+    if (eof) {
+        *pflags |= NGHTTP3_DATA_FLAG_EOF;
     }
 
     vec[0].base = (uint8_t*)buf;
@@ -97,6 +103,7 @@ int cb_http3_stream_close(nghttp3_conn *conn, int64_t stream_id,
                           void *conn_user_data,
                           void *stream_user_data) 
 {
+    srs_trace("@john, h3 stream %lld closed, error code=%lu", stream_id, app_error_code);
     return 0;
 }
 
@@ -513,7 +520,7 @@ srs_error_t SrsHttp3QuicConn::flush_h3_stream()
                 return srs_error_wrap(err, "quic conn write failed");
             }
 
-            // srs_trace("@john, try send stream_id=%ld %d bytes, nb=%d", stream_id, vec[i].len, nb);
+            srs_trace("@john, try send stream_id=%ld %d bytes, ret=%d, nb=%d, fin=%d", stream_id, vec[i].len, ret, nb, fin);
             srs_assert(nb >= 0);
             nghttp3_conn_add_write_offset(http3_conn_, stream_id, nb);
         }
@@ -531,6 +538,17 @@ SrsHttp3ResponseWriter::SrsHttp3ResponseWriter(SrsHttp3StreamThread* stream, ISr
 
 SrsHttp3ResponseWriter::~SrsHttp3ResponseWriter()
 {
+}
+
+srs_error_t SrsHttp3ResponseWriter::final_request()
+{
+    srs_error_t err = srs_success;
+
+    http3_stream_->data_eof_ = true;
+
+    srs_trace("@john, final request");
+
+    return err;
 }
 
 srs_error_t SrsHttp3ResponseWriter::send_header(char* data, int size)
@@ -567,6 +585,9 @@ srs_error_t SrsHttp3ResponseWriter::send_header(char* data, int size)
     http3_rsp_headers.push_back(make_http3_header(":status", ss.str()));
     srs_trace("status=%d", status);
     for (std::map<std::string, std::string>::iterator iter = headers.begin(); iter != headers.end(); ++iter) {
+        if (iter->first == "Connection") {
+            continue;
+        }
         http3_rsp_headers.push_back(make_http3_header(iter->first, iter->second));
         srs_trace("http rsp header %s=%s", iter->first.c_str(), iter->second.c_str());
     }
@@ -587,6 +608,7 @@ srs_error_t SrsHttp3ResponseWriter::send_header(char* data, int size)
 SrsHttp3StreamThread::SrsHttp3StreamThread(SrsHttp3QuicConn* conn, int64_t stream_id)
 {
     header_completed_ = false;
+    data_eof_ = false;
     cors_ = new SrsHttpCorsMux();
 
     trd_ = NULL;
@@ -756,8 +778,9 @@ int SrsHttp3StreamThread::recv_header(int32_t token, nghttp3_rcbuf *name, nghttp
     return 0;
 }
 
-int SrsHttp3StreamThread::dump_data(void** buf, ssize_t* nb)
+int SrsHttp3StreamThread::dump_data(void** buf, ssize_t* nb, bool& eof)
 {
+    srs_trace("@john, data_eof_=%d, unsend=%u", data_eof_, buffer_->size_unsend());
     if (buffer_->size_unsend() == 0) {
         return 0;
     }
@@ -768,6 +791,8 @@ int SrsHttp3StreamThread::dump_data(void** buf, ssize_t* nb)
     *nb = size_to_write;
 
     buffer_->sent(size_to_write);
+
+    eof = data_eof_;
 
     return 1;
 }
