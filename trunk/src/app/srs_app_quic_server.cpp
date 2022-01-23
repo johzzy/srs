@@ -26,25 +26,26 @@
 using namespace std;
 
 #include <srs_app_config.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_kernel_utility.hpp>
-#include <srs_kernel_log.hpp>
-#include <srs_app_statistic.hpp>
-#include <srs_app_utility.hpp>
+#include <srs_app_http3_conn.hpp>
+#include <srs_app_http3_quic_conn.hpp>
 #include <srs_app_pithy_print.hpp>
-#include <srs_core_autofree.hpp>
 #include <srs_app_quic_conn.hpp>
 #include <srs_app_quic_tls.hpp>
 #include <srs_app_quic_util.hpp>
-#include <srs_app_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_protocol_utility.hpp>
 #include <srs_app_rtc_forward_quic_conn.hpp>
-#include <srs_app_http3_conn.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_statistic.hpp>
+#include <srs_app_utility.hpp>
+#include <srs_core_autofree.hpp>
+#include <srs_kernel_error.hpp>
+#include <srs_kernel_log.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_protocol_utility.hpp>
+#include <srs_service_utility.hpp>
 
 SrsQuicServer::SrsQuicServer()
 {
-    conn_manager_ = new SrsResourceManager("QUIC conn", true/*verbose*/);
+    conn_manager_ = new SrsResourceManager("QUIC conn", true /*verbose*/);
 }
 
 SrsQuicServer::~SrsQuicServer()
@@ -69,7 +70,7 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListene
 
     srs_trace("on quic client, type=%d", (int)type);
 
-    // Create QUIC application connections by listen type, the life of `conn` is manage by 
+    // Create QUIC application connections by listen type, the life of `conn` is manage by
     // SrsQuicIoLoop, applicaion connections never free it.
 
     if (type == SrsQuicListenerRtcForward) {
@@ -80,7 +81,8 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListene
             return srs_error_wrap(err, "quic rtc_forward_quic_conn start failed");
         }
     } else if (type == SrsQuicListenerHttpApi) {
-        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, conn, _srs_hybrid->srs()->instance()->api_server(), NULL);
+        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, dynamic_cast<SrsHttp3QuicConnection*>(conn),
+                                                 _srs_hybrid->srs()->instance()->api_server(), NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);
@@ -89,7 +91,8 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListene
         // TODO: FIXME:  HTTP3 support.
     } else if (type == SrsQuicListenerHttpStream) {
         // TODO: FIXME:  HTTP3 support.
-        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, conn, _srs_hybrid->srs()->instance()->get_http_server(), NULL);
+        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, dynamic_cast<SrsHttp3QuicConnection*>(conn),
+                                                 _srs_hybrid->srs()->instance()->get_http_server(), NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);
@@ -97,7 +100,7 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListene
         }
         // TODO: FIXME:  HTTP3 support.
     } else {
-        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, conn, NULL, NULL);
+        SrsHttp3Conn* h3_conn = new SrsHttp3Conn(this, dynamic_cast<SrsHttp3QuicConnection*>(conn), NULL, NULL);
         conn_manager_->add(h3_conn);
         if ((err = h3_conn->start()) != srs_success) {
             srs_freep(h3_conn);
@@ -105,7 +108,6 @@ srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListene
         }
         // TODO: FIXME:  HTTP3 support.
     }
-
 
     return err;
 }
@@ -167,7 +169,7 @@ srs_error_t SrsQuicServer::listen_http_api_quic()
 {
     srs_error_t err = srs_success;
 
-    if (! _srs_config->get_http_api_quic_enabled()) {
+    if (!_srs_config->get_http_api_quic_enabled()) {
         return err;
     }
 
@@ -191,7 +193,7 @@ srs_error_t SrsQuicServer::listen_http_stream_quic()
 {
     srs_error_t err = srs_success;
 
-    if (! _srs_config->get_http_stream_quic_enabled()) {
+    if (!_srs_config->get_http_stream_quic_enabled()) {
         return err;
     }
 
@@ -215,7 +217,7 @@ srs_error_t SrsQuicServer::listen_rtc_server_quic()
 {
     srs_error_t err = srs_success;
 
-    if (! _srs_config->get_rtc_server_quic_enabled()) {
+    if (!_srs_config->get_rtc_server_quic_enabled()) {
         return err;
     }
 
@@ -268,5 +270,4 @@ srs_error_t SrsQuicServerAdapter::run()
 }
 
 void SrsQuicServerAdapter::stop()
-{
-}
+{}

@@ -25,29 +25,28 @@
 
 using namespace std;
 
+#include <srs_app_config.hpp>
+#include <srs_app_quic_server.hpp>
+#include <srs_app_quic_tls.hpp>
+#include <srs_app_quic_transport.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_utility.hpp>
 #include <srs_core_autofree.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
-#include <srs_app_utility.hpp>
-#include <srs_app_config.hpp>
-#include <srs_app_server.hpp>
-#include <srs_app_quic_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_service_st.hpp>
 #include <srs_protocol_utility.hpp>
-#include <srs_app_quic_tls.hpp>
-#include <srs_app_quic_transport.hpp>
+#include <srs_service_st.hpp>
+#include <srs_service_utility.hpp>
 
-string quic_conn_id_dump(const uint8_t* data, const size_t len)
+string quic_conn_id_dump(const uint8_t *data, const size_t len)
 {
     static char capacity[256];
-    char* buf = capacity;
+    char *buf = capacity;
     int size = 0;
     for (size_t i = 0; i < len; ++i) {
         int nb = snprintf(buf, sizeof(capacity), "%02x", data[i]);
-        if (nb < 0)
-            break;
+        if (nb < 0) break;
 
         buf += nb;
         size += nb;
@@ -56,23 +55,23 @@ string quic_conn_id_dump(const uint8_t* data, const size_t len)
     return string(capacity, size);
 }
 
-string quic_conn_id_dump(const string& connid)
+string quic_conn_id_dump(const string &connid)
 {
-    return quic_conn_id_dump(reinterpret_cast<const uint8_t*>(connid.data()), connid.size());
+    return quic_conn_id_dump(reinterpret_cast<const uint8_t *>(connid.data()), connid.size());
 }
 
 uint32_t generate_reserved_version(const sockaddr *sa, socklen_t salen, uint32_t version)
 {
     // TODO: FIXME: Too many magic number in this function.
     uint32_t h = 0x811C9DC5u;
-    const uint8_t *p = reinterpret_cast<const uint8_t*>(sa);
+    const uint8_t *p = reinterpret_cast<const uint8_t *>(sa);
     const uint8_t *ep = p + salen;
     for (; p != ep; ++p) {
         h ^= *p;
         h *= 0x01000193u;
     }
     version = htonl(version);
-    p = reinterpret_cast<const uint8_t*>(&version);
+    p = reinterpret_cast<const uint8_t *>(&version);
     ep = p + sizeof(version);
     for (; p != ep; ++p) {
         h ^= *p;
@@ -84,9 +83,9 @@ uint32_t generate_reserved_version(const sockaddr *sa, socklen_t salen, uint32_t
 }
 
 // libngtcp2 log callback function.
-void ngtcp2_log_handle(void *user_data, const char *fmt, ...) 
+void ngtcp2_log_handle(void *user_data, const char *fmt, ...)
 {
-    SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport *>(user_data);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(user_data);
     if (quic_transport) {
         va_list ap;
         va_start(ap, fmt);
@@ -96,44 +95,37 @@ void ngtcp2_log_handle(void *user_data, const char *fmt, ...)
 }
 
 // @see: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-00.html
-// qlog trace all the events of quic connection, can analyses using visualize 
+// qlog trace all the events of quic connection, can analyses using visualize
 // toolsuite https://qvis.quictools.info
 void qlog_handle(void *user_data, uint32_t flags, const void *data, size_t datalen)
 {
-    SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport *>(user_data);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(user_data);
     if (quic_transport) {
         quic_transport->on_qlog(flags, data, datalen);
     }
 }
 
-string dump_quic_conn_stat(ngtcp2_conn* conn)
+string dump_quic_conn_stat(ngtcp2_conn *conn)
 {
     ngtcp2_conn_stat stat;
     ngtcp2_conn_get_conn_stat(conn, &stat);
     stringstream ss;
-    ss << "latest_rtt=" << stat.latest_rtt
-       << ",min_rtt=" << stat.min_rtt
-       << ",smoothed_rtt=" << stat.smoothed_rtt
-       << ",rttvar=" << stat.rttvar
-       << ",initial_rtt=" << stat.initial_rtt
-       << ",first_rtt_sample_ts=" << stat.first_rtt_sample_ts
-       << ",pto_count=" << stat.pto_count
-       << ",loss_detection_timer=" << stat.loss_detection_timer
-       << ",cwnd=" << stat.cwnd
-       << ",ssthresh=" << stat.ssthresh
-       << ",congestion_recovery_start_ts=" << stat.congestion_recovery_start_ts
-       << ",bytes_in_flight=" << stat.bytes_in_flight
-       << ",max_udp_payload_size=" << stat.max_udp_payload_size
+    ss << "latest_rtt=" << stat.latest_rtt << ",min_rtt=" << stat.min_rtt << ",smoothed_rtt=" << stat.smoothed_rtt
+       << ",rttvar=" << stat.rttvar << ",initial_rtt=" << stat.initial_rtt
+       << ",first_rtt_sample_ts=" << stat.first_rtt_sample_ts << ",pto_count=" << stat.pto_count
+       << ",loss_detection_timer=" << stat.loss_detection_timer << ",cwnd=" << stat.cwnd
+       << ",ssthresh=" << stat.ssthresh << ",congestion_recovery_start_ts=" << stat.congestion_recovery_start_ts
+       << ",bytes_in_flight=" << stat.bytes_in_flight << ",max_udp_payload_size=" << stat.max_udp_payload_size
        << ",delivery_rate_sec=" << stat.delivery_rate_sec;
 
     return ss.str();
 }
 
-int srs_generate_rand_data(uint8_t* dest, size_t destlen)
+int srs_generate_rand_data(uint8_t *dest, size_t destlen)
 {
-	for (size_t i = 0 ; i < destlen; ++i) {
+    for (size_t i = 0; i < destlen; ++i) {
         dest[i] = random() % 255;
-	}
+    }
     return 0;
 }
 
@@ -146,13 +138,9 @@ ngtcp2_tstamp srs_get_system_time_for_quic()
     return srs_get_system_time() * 1000;
 }
 
-SrsQuicToken::SrsQuicToken()
-{
-}
+SrsQuicToken::SrsQuicToken() {}
 
-SrsQuicToken::~SrsQuicToken()
-{
-}
+SrsQuicToken::~SrsQuicToken() {}
 
 srs_error_t SrsQuicToken::init()
 {
@@ -165,7 +153,7 @@ srs_error_t SrsQuicToken::init()
     return err;
 }
 
-int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen) 
+int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen)
 {
     uint8_t rand[16];
     uint8_t md[32];
@@ -174,14 +162,13 @@ int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen)
 
     srs_generate_rand_data(rand, sizeof(rand));
 
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
     if (ctx == NULL) {
         return -1;
     }
 
     unsigned int mdlen = sizeof(md);
-    if (!EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) ||
-        !EVP_DigestUpdate(ctx, rand, sizeof(rand)) ||
+    if (!EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) || !EVP_DigestUpdate(ctx, rand, sizeof(rand)) ||
         !EVP_DigestFinal_ex(ctx, md, &mdlen)) {
         return -1;
     }
@@ -191,10 +178,10 @@ int SrsQuicToken::generate_secret(uint8_t *secret, size_t secretlen)
 }
 
 // Generate token combine with `sa` to confirm client has validate ip addr.
-int SrsQuicToken::generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *addr, size_t addrlen) 
+int SrsQuicToken::generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *addr, size_t addrlen)
 {
-	int ret = ngtcp2_crypto_generate_regular_token(token, get_static_secret(), get_static_secret_len(), 
-                                                   addr, addrlen, srs_get_system_time_for_quic());
+    int ret = ngtcp2_crypto_generate_regular_token(token, get_static_secret(), get_static_secret_len(), addr, addrlen,
+                                                   srs_get_system_time_for_quic());
     if (ret < 0) {
         return -1;
     }

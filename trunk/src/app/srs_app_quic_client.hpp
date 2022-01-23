@@ -24,23 +24,22 @@
 #ifndef SRS_APP_QUIC_CLIENT_HPP
 #define SRS_APP_QUIC_CLIENT_HPP
 
-#include <srs_core.hpp>
-#include <srs_app_listener.hpp>
-#include <srs_app_hourglass.hpp>
-#include <srs_service_st.hpp>
-#include <srs_kernel_utility.hpp>
-#include <srs_app_reload.hpp>
-#include <srs_service_conn.hpp>
-#include <srs_app_conn.hpp>
-#include <srs_app_quic_transport.hpp>
-
-#include <deque>
-#include <string>
-#include <map>
-#include <vector>
+#include <ngtcp2/ngtcp2.h>
 #include <sys/socket.h>
 
-#include <ngtcp2/ngtcp2.h>
+#include <deque>
+#include <map>
+#include <srs_app_conn.hpp>
+#include <srs_app_hourglass.hpp>
+#include <srs_app_listener.hpp>
+#include <srs_app_quic_transport.hpp>
+#include <srs_app_reload.hpp>
+#include <srs_core.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_service_conn.hpp>
+#include <srs_service_st.hpp>
+#include <string>
+#include <vector>
 
 class SrsQuicTlsContext;
 class SrsQuicTlsSession;
@@ -50,26 +49,28 @@ class SrsQuicClient : public SrsQuicTransport, virtual public ISrsCoroutineHandl
 {
 public:
     SrsQuicClient(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id);
-  	~SrsQuicClient();
-// Interface for SrsQuicTransport
+    ~SrsQuicClient();
+    // Interface for SrsQuicTransport
 private:
-    virtual ngtcp2_settings build_quic_settings(uint8_t* token , size_t tokenlen);
+    virtual ngtcp2_settings build_quic_settings(uint8_t* token, size_t tokenlen);
     virtual ngtcp2_transport_params build_quic_transport_params(ngtcp2_cid* original_dcid);
-    virtual srs_error_t init(sockaddr* local_addr, const socklen_t local_addrlen,
-        sockaddr* remote_addr, const socklen_t remote_addrlen,
-        ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
-        uint8_t* token, const size_t tokenlen);
+    virtual srs_error_t init(sockaddr* local_addr, const socklen_t local_addrlen, sockaddr* remote_addr,
+                             const socklen_t remote_addrlen, ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
+                             uint8_t* token, const size_t tokenlen);
 
-	virtual int handshake_completed();
+    virtual int handshake_completed();
+
 private:
     srs_error_t create_udp_socket(const std::string& ip);
     srs_error_t create_udp_io_thread();
- private:
+
+private:
     // Quic client udp packet io recv thread.
     virtual srs_error_t cycle();
-// SrsQuicClient API
+    // SrsQuicClient API
 public:
     srs_error_t connect(const std::string& ip, uint16_t port, srs_utime_t timeout);
+
 private:
     srs_cond_t connection_cond_;
     SrsSTCoroutine* trd_;

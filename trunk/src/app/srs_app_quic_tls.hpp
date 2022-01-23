@@ -24,16 +24,14 @@
 #ifndef SRS_APP_QUIC_TLS_HPP
 #define SRS_APP_QUIC_TLS_HPP
 
-#include <srs_core.hpp>
-
-#include <srs_app_listener.hpp>
-#include <srs_app_st.hpp>
-#include <srs_app_reload.hpp>
-#include <srs_app_hourglass.hpp>
-#include <srs_app_hybrid.hpp>
-
 #include <openssl/ssl.h>
 
+#include <srs_app_hourglass.hpp>
+#include <srs_app_hybrid.hpp>
+#include <srs_app_listener.hpp>
+#include <srs_app_reload.hpp>
+#include <srs_app_st.hpp>
+#include <srs_core.hpp>
 #include <string>
 
 class SrsQuicTlsContext
@@ -41,10 +39,13 @@ class SrsQuicTlsContext
 public:
     SrsQuicTlsContext();
     virtual ~SrsQuicTlsContext();
+
 public:
     SSL_CTX* get_ssl_ctx() const { return ssl_ctx_; }
+
 public:
     virtual srs_error_t init(const std::string& key, const std::string& cert) = 0;
+
 protected:
     SSL_CTX* ssl_ctx_;
 };
@@ -54,6 +55,7 @@ class SrsQuicTlsClientContext : public SrsQuicTlsContext
 public:
     SrsQuicTlsClientContext();
     ~SrsQuicTlsClientContext();
+
 public:
     virtual srs_error_t init(const std::string& key, const std::string& cert);
 };
@@ -63,10 +65,13 @@ class SrsQuicTlsServerContext : public SrsQuicTlsContext
 public:
     SrsQuicTlsServerContext();
     ~SrsQuicTlsServerContext();
+
 public:
     virtual srs_error_t init(const std::string& key, const std::string& cert);
+
 private:
     srs_error_t generate_tls_cert_and_key();
+
 private:
     X509* tls_cert_;
     EVP_PKEY* tls_pkey_;
@@ -77,9 +82,11 @@ class SrsQuicTlsSession
 public:
     SrsQuicTlsSession();
     virtual ~SrsQuicTlsSession();
+
 public:
     SSL* get_ssl() const { return ssl_; }
     virtual srs_error_t init(const SrsQuicTlsContext* quic_tls_ctx, void* handler) = 0;
+
 protected:
     SSL* ssl_;
 };

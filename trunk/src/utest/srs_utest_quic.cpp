@@ -24,8 +24,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using namespace std;
 
-#include <srs_kernel_error.hpp>
 #include <srs_app_quic_transport.hpp>
+#include <srs_kernel_error.hpp>
 
 TEST(QuicStreamBuffer, TestWrite)
 {
@@ -119,7 +119,7 @@ TEST(QuicStreamBuffer, TestWriteReadContent)
     nb = buffer.write(req.data() + offset, 400);
     EXPECT_EQ(nb, 400);
     offset += 400;
-    
+
     nb = buffer.read(buf, 500);
     EXPECT_TRUE(nb == 500);
     rsp.append(buf, nb);
@@ -131,7 +131,7 @@ TEST(QuicStreamBuffer, TestWriteReadContent)
 TEST(QuicStreamBuffer, TestWriteReadContentMulti)
 {
     SrsQuicStreamBuffer buffer(1024);
-    int random_buffer_size = 1024*73;
+    int random_buffer_size = 1024 * 73;
     char* random_buffer = new char[random_buffer_size];
     string req(random_buffer, random_buffer_size);
 
@@ -160,7 +160,7 @@ TEST(QuicStreamBuffer, TestWriteReadContentMulti)
 TEST(QuicStreamBuffer, TestWriteReadContentSkip)
 {
     SrsQuicStreamBuffer buffer(1024);
-    int random_buffer_size = 1015*73;
+    int random_buffer_size = 1015 * 73;
     char* random_buffer = new char[random_buffer_size];
     string req(random_buffer, random_buffer_size);
 

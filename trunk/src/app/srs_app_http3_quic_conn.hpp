@@ -34,6 +34,7 @@
 #include <srs_app_hourglass.hpp>
 #include <srs_app_http3_quic_transport.hpp>
 #include <srs_app_listener.hpp>
+#include <srs_app_quic_conn.hpp>
 #include <srs_app_reload.hpp>
 #include <srs_core.hpp>
 #include <srs_kernel_utility.hpp>
@@ -47,17 +48,20 @@ class SrsUdpMuxSocket;
 class SrsQuicTlsServerSession;
 
 // Quic connection which accept from client.
-class SrsHttp3QuicConnection : public SrsHttp3QuicTransport,
-                               virtual public ISrsResource,
-                               virtual public ISrsDisposingHandler
+class SrsHttp3QuicConnection : public SrsHttp3QuicTransport, public ISrsQuicServerConn
 {
 public:
-    SrsHttp3QuicConnection(SrsQuicMultiplexer* multiplexer,
-                           const SrsContextId& ctx_id);
+    SrsHttp3QuicConnection(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id);
     ~SrsHttp3QuicConnection();
 
 private:
-    virtual srs_error_t init_http3();
+    virtual srs_error_t accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd);
+    virtual srs_error_t init(sockaddr* local_addr, const socklen_t local_addrlen, sockaddr* remote_addr,
+                             const socklen_t remote_addrlen, ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
+                             uint8_t* token, const size_t tokenlen);
+    virtual ngtcp2_settings build_quic_settings(uint8_t* token, size_t tokenlen);
+    virtual ngtcp2_transport_params build_quic_transport_params(ngtcp2_cid* original_dcid);
+    virtual int handshake_completed();
 };
 
 #endif

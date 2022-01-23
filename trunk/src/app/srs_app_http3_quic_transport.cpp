@@ -52,8 +52,7 @@ static void nghttp3_debug_log_handler(const char *format, va_list args)
     }
 }
 
-static nghttp3_nv make_http3_header(const std::string &key,
-                                    const std::string &value)
+static nghttp3_nv make_http3_header(const std::string &key, const std::string &value)
 {
     nghttp3_nv nv;
     nv.name = (uint8_t *)key.data();
@@ -64,15 +63,15 @@ static nghttp3_nv make_http3_header(const std::string &key,
     return nv;
 }
 
-static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id,
-                                     nghttp3_vec *vec, size_t veccnt,
-                                     uint32_t *pflags, void *user_data,
-                                     void *stream_user_data)
+static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id, nghttp3_vec *vec, size_t veccnt,
+                                     uint32_t *pflags, void *user_data, void *stream_user_data)
 {
-    SrsHttp3QuicStream *stream =
-        static_cast<SrsHttp3QuicStream *>(stream_user_data);
+    SrsHttp3QuicStream *stream = static_cast<SrsHttp3QuicStream *>(stream_user_data);
     SrsQuicStreamWriteBuffer *write_buffer = stream->get_write_buffer();
+
+    srs_trace("@john, stream=%ld, size_unsend=%d", stream_id, write_buffer->size_unsend());
     if (write_buffer->size_unsend() == 0) {
+        srs_trace("@john, stream=%ld block because of write buffer", stream_id);
         return NGHTTP3_ERR_WOULDBLOCK;
     }
 
@@ -86,126 +85,134 @@ static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id,
     return 1;
 }
 
-static int cb_http3_acked_stream_data(nghttp3_conn *conn, int64_t stream_id,
-                                      uint64_t datalen, void *conn_user_data,
+static int cb_http3_acked_stream_data(nghttp3_conn *conn, int64_t stream_id, uint64_t datalen, void *conn_user_data,
                                       void *stream_user_data)
 {
-    SrsHttp3QuicStream *http3_stream =
-        static_cast<SrsHttp3QuicStream *>(stream_user_data);
+    SrsHttp3QuicStream *http3_stream = static_cast<SrsHttp3QuicStream *>(stream_user_data);
     return http3_stream->acked_stream_data(stream_id, datalen);
 }
 
-static int cb_http3_stream_close(nghttp3_conn *conn, int64_t stream_id,
-                                 uint64_t app_error_code, void *conn_user_data,
+static int cb_http3_stream_close(nghttp3_conn *conn, int64_t stream_id, uint64_t app_error_code, void *conn_user_data,
                                  void *stream_user_data)
 {
-    srs_trace("h3 stream %lld closed, error code=%lu", stream_id,
-              app_error_code);
+    srs_trace("h3 stream %lld closed, error code=%lu", stream_id, app_error_code);
     return 0;
 }
 
-static int cb_http3_recv_data(nghttp3_conn *conn, int64_t stream_id,
-                              const uint8_t *data, size_t datalen,
+static int cb_http3_recv_data(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data, size_t datalen,
                               void *conn_user_data, void *stream_user_data)
 {
-    SrsHttp3QuicStream *http3_stream =
-        static_cast<SrsHttp3QuicStream *>(stream_user_data);
+    SrsHttp3QuicStream *http3_stream = static_cast<SrsHttp3QuicStream *>(stream_user_data);
     return http3_stream->recv_data(data, datalen);
 }
 
-static int cb_http3_deferred_consume(nghttp3_conn *conn, int64_t stream_id,
-                                     size_t consumed, void *conn_user_data,
+static int cb_http3_deferred_consume(nghttp3_conn *conn, int64_t stream_id, size_t consumed, void *conn_user_data,
                                      void *stream_user_data)
 {
     return 0;
 }
 
-static int cb_http3_begin_headers(nghttp3_conn *conn, int64_t stream_id,
-                                  void *conn_user_data, void *stream_user_data)
+static int cb_http3_begin_headers(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data, void *stream_user_data)
 {
-    SrsHttp3QuicTransport *http3_conn =
-        static_cast<SrsHttp3QuicTransport *>(conn_user_data);
+    SrsHttp3QuicTransport *http3_conn = static_cast<SrsHttp3QuicTransport *>(conn_user_data);
     return http3_conn->begin_request_headers(stream_id);
 }
 
-static int cb_http3_recv_header(nghttp3_conn *conn, int64_t stream_id,
-                                int32_t token, nghttp3_rcbuf *name,
-                                nghttp3_rcbuf *value, uint8_t flags,
-                                void *conn_user_data, void *stream_user_data)
+static int cb_http3_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token, nghttp3_rcbuf *name,
+                                nghttp3_rcbuf *value, uint8_t flags, void *conn_user_data, void *stream_user_data)
 {
-    SrsHttp3QuicStream *http3_stream =
-        static_cast<SrsHttp3QuicStream *>(stream_user_data);
+    SrsHttp3QuicStream *http3_stream = static_cast<SrsHttp3QuicStream *>(stream_user_data);
     return http3_stream->recv_header(token, name, value, flags);
 }
 
-static int cb_http3_end_headers(nghttp3_conn *conn, int64_t stream_id,
-                                void *conn_user_data, void *stream_user_data)
+static int cb_http3_end_headers(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data, void *stream_user_data)
 {
-    SrsHttp3QuicStream *http3_stream =
-        static_cast<SrsHttp3QuicStream *>(stream_user_data);
+    SrsHttp3QuicStream *http3_stream = static_cast<SrsHttp3QuicStream *>(stream_user_data);
     return http3_stream->end_request_headers();
 }
 
-static int cb_http3_begin_trailers(nghttp3_conn *conn, int64_t stream_id,
-                                   void *conn_user_data, void *stream_user_data)
+static int cb_http3_begin_trailers(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data, void *stream_user_data)
 {
     srs_trace("http3 begin trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
-static int cb_http3_recv_trailer(nghttp3_conn *conn, int64_t stream_id,
-                                 int32_t token, nghttp3_rcbuf *name,
-                                 nghttp3_rcbuf *value, uint8_t flags,
-                                 void *conn_user_data, void *stream_user_data)
+static int cb_http3_recv_trailer(nghttp3_conn *conn, int64_t stream_id, int32_t token, nghttp3_rcbuf *name,
+                                 nghttp3_rcbuf *value, uint8_t flags, void *conn_user_data, void *stream_user_data)
 {
     srs_trace("http3 recv trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
-static int cb_http3_end_trailers(nghttp3_conn *conn, int64_t stream_id,
-                                 void *conn_user_data, void *stream_user_data)
+static int cb_http3_end_trailers(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data, void *stream_user_data)
 {
     srs_trace("http3 end trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
-static int cb_http3_end_stream(nghttp3_conn *conn, int64_t stream_id,
-                               void *conn_user_data, void *stream_user_data)
+static int cb_http3_end_stream(nghttp3_conn *conn, int64_t stream_id, void *conn_user_data, void *stream_user_data)
 {
     srs_trace("http3 stream end, stream_id=%ld", stream_id);
     return 0;
 }
 
-static int cb_http3_reset_stream(nghttp3_conn *conn, int64_t stream_id,
-                                 uint64_t app_error_code, void *conn_user_data,
+static int cb_http3_reset_stream(nghttp3_conn *conn, int64_t stream_id, uint64_t app_error_code, void *conn_user_data,
                                  void *stream_user_data)
 {
     srs_trace("http3 stream reset, stream_id=%ld", stream_id);
     return 0;
 }
 
-static int cb_http3_shutdown(nghttp3_conn *conn, int64_t id,
-                             void *conn_user_data)
+static int cb_http3_shutdown(nghttp3_conn *conn, int64_t id, void *conn_user_data)
 {
     srs_trace("http3 shutdown, id=%ld", id);
     return 0;
 }
 
-SrsHttp3QuicStream::SrsHttp3QuicStream(int64_t stream_id,
-                                       const SrsQuicStreamDirection &direction,
-                                       const SrsQuicStreamState &state,
-                                       SrsHttp3QuicTransport *transport)
+SrsHttp3QuicStream::SrsHttp3QuicStream(int64_t stream_id, const SrsQuicStreamDirection &direction,
+                                       const SrsQuicStreamState &state, SrsHttp3QuicTransport *transport)
     : SrsQuicStream(stream_id, direction, state, transport)
 {
+    msg_ = new SrsHttpMessage();
+    header_ = new SrsHttpHeader();
     header_completed_ = false;
+    header_completed_cond_ = srs_cond_new();
     qpack_stream_ = false;
 }
 
-SrsHttp3QuicStream::~SrsHttp3QuicStream() {}
+SrsHttp3QuicStream::~SrsHttp3QuicStream()
+{
+    srs_freep(msg_);
+    srs_freep(header_);
+    srs_cond_destroy(header_completed_cond_);
+}
 
 nghttp3_conn *SrsHttp3QuicStream::get_nghttp3_conn()
 {
     return dynamic_cast<SrsHttp3QuicTransport *>(quic_transport_)->http3_conn_;
+}
+
+srs_error_t SrsHttp3QuicStream::read_header(SrsHttpHeader **header, SrsHttpMessage **msg, srs_utime_t timeout)
+{
+    srs_error_t err = srs_success;
+
+    if (header_completed_) {
+        *header = header_;
+        *msg = msg_;
+
+        msg_ = new SrsHttpMessage();
+        header_ = new SrsHttpHeader();
+
+        header_completed_ = false;
+        return err;
+    }
+
+    int ret = srs_cond_timedwait(header_completed_cond_, timeout);
+    if (ret != 0) {
+        return srs_error_new(ERROR_QUIC_TIMEOUT, "quic accept stream timeout");
+    }
+
+    return err;
 }
 
 int SrsHttp3QuicStream::acked_stream_data(int64_t stream_id, uint64_t datalen)
@@ -218,9 +225,7 @@ int SrsHttp3QuicStream::acked_stream_data(int64_t stream_id, uint64_t datalen)
 
 int SrsHttp3QuicStream::resume()
 {
-    return nghttp3_conn_resume_stream(
-        dynamic_cast<SrsHttp3QuicTransport *>(quic_transport_)->http3_conn_,
-        stream_id_);
+    return nghttp3_conn_resume_stream(dynamic_cast<SrsHttp3QuicTransport *>(quic_transport_)->http3_conn_, stream_id_);
 }
 
 int SrsHttp3QuicStream::recv_data(const uint8_t *data, size_t datalen)
@@ -228,8 +233,7 @@ int SrsHttp3QuicStream::recv_data(const uint8_t *data, size_t datalen)
     return 0;
 }
 
-int SrsHttp3QuicStream::recv_header(int32_t token, nghttp3_rcbuf *name,
-                                    nghttp3_rcbuf *value, uint8_t flags)
+int SrsHttp3QuicStream::recv_header(int32_t token, nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags)
 {
     nghttp3_vec n = nghttp3_rcbuf_get_buf(name);
     nghttp3_vec v = nghttp3_rcbuf_get_buf(value);
@@ -240,7 +244,7 @@ int SrsHttp3QuicStream::recv_header(int32_t token, nghttp3_rcbuf *name,
     switch (token) {
         case NGHTTP3_QPACK_TOKEN__PATH:
             srs_trace("@john #h3, uri=%s", field_value.c_str());
-            msg_.set_url(field_value, false);
+            msg_->set_url(field_value, false);
             break;
         case NGHTTP3_QPACK_TOKEN__METHOD:
             srs_trace("@john #h3, method=%s", field_value.c_str());
@@ -249,7 +253,7 @@ int SrsHttp3QuicStream::recv_header(int32_t token, nghttp3_rcbuf *name,
             srs_trace("@john #h3, authority=%s", field_value.c_str());
             break;
         default:
-            header_.set(field_name, field_value);
+            header_->set(field_name, field_value);
             break;
     }
 
@@ -260,17 +264,16 @@ int SrsHttp3QuicStream::end_request_headers()
 {
     srs_trace("stream=%ld, header complete", stream_id_);
     header_completed_ = true;
+    srs_cond_signal(header_completed_cond_);
 
     // TODO: FIXME:
-    // msg->set_basic(hp_header.type, hp_header.method, hp_header.status_code,
-    // hp_header.content_length); msg_.set_header(&header_, 0);
+    msg_->set_header(header_, 0);
     // msg_.set_connection(this);
 
     return 0;
 }
 
-SrsHttp3QuicTransport::SrsHttp3QuicTransport(SrsQuicMultiplexer *multiplexer,
-                                             const SrsContextId &ctx_id)
+SrsHttp3QuicTransport::SrsHttp3QuicTransport(SrsQuicMultiplexer *multiplexer, const SrsContextId &ctx_id)
     : SrsQuicTransport(multiplexer, ctx_id)
 {
     ctrl_stream_id_ = -1;
@@ -300,33 +303,28 @@ SrsHttp3QuicTransport::~SrsHttp3QuicTransport()
     nghttp3_conn_del(http3_conn_);
 }
 
-int SrsHttp3QuicTransport::recv_stream_data(uint32_t flags, int64_t stream_id,
-                                            uint64_t offset,
-                                            const uint8_t *data, size_t datalen)
+int SrsHttp3QuicTransport::recv_stream_data(uint32_t flags, int64_t stream_id, uint64_t offset, const uint8_t *data,
+                                            size_t datalen)
 {
     SrsQuicStream *stream = find_stream(stream_id);
     if (stream == NULL) {
         return -1;
     }
 
-    int nconsumed =
-        nghttp3_conn_read_stream(http3_conn_, stream_id, data, datalen, 0);
+    int nconsumed = nghttp3_conn_read_stream(http3_conn_, stream_id, data, datalen, 0);
     if (nconsumed < 0) {
-        srs_warn("nghttp3_conn_read_stream failed, err=%s",
-                 nghttp3_strerror(nconsumed));
+        srs_warn("nghttp3_conn_read_stream failed, err=%s", nghttp3_strerror(nconsumed));
         return -1;
     }
 
     int nb = stream->on_data(data, nconsumed);
     if (nb <= 0) {
-        srs_warn("quic conn %s stream %ld no room to store incoming packet",
-                 get_conn_name().c_str(), stream_id);
+        srs_warn("quic conn %s stream %ld no room to store incoming packet", get_conn_name().c_str(), stream_id);
         return -1;
     }
 
     if (nb < (int)datalen) {
-        srs_warn("quic conn %s stream %ld partial data ack",
-                 get_conn_name().c_str(), stream_id);
+        srs_warn("quic conn %s stream %ld partial data ack", get_conn_name().c_str(), stream_id);
     }
 
     // Quic stream level flow control.
@@ -336,9 +334,7 @@ int SrsHttp3QuicTransport::recv_stream_data(uint32_t flags, int64_t stream_id,
     return 0;
 }
 
-int SrsHttp3QuicTransport::acked_stream_data_offset(int64_t stream_id,
-                                                    uint64_t offset,
-                                                    uint64_t datalen)
+int SrsHttp3QuicTransport::acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen)
 {
     int ret = nghttp3_conn_add_ack_offset(http3_conn_, stream_id, datalen);
     if (ret != 0) {
@@ -365,8 +361,7 @@ int SrsHttp3QuicTransport::extend_max_remote_streams_bidi(uint64_t max_streams)
     return 0;
 }
 
-int SrsHttp3QuicTransport::extend_max_stream_data(int64_t stream_id,
-                                                  uint64_t max_data)
+int SrsHttp3QuicTransport::extend_max_stream_data(int64_t stream_id, uint64_t max_data)
 {
     int ret = nghttp3_conn_unblock_stream(http3_conn_, stream_id);
     if (ret != 0) {
@@ -374,6 +369,34 @@ int SrsHttp3QuicTransport::extend_max_stream_data(int64_t stream_id,
         return -1;
     }
     return 0;
+}
+
+srs_error_t SrsHttp3QuicTransport::read_header(int64_t stream_id, SrsHttpHeader **header, SrsHttpMessage **msg,
+                                               srs_utime_t timeout)
+{
+    srs_error_t err = srs_success;
+
+    if (in_draininig()) {
+        return srs_error_new(ERROR_QUIC_CLOSED, "quic conn closed");
+    }
+
+    SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(stream_id));
+    if (stream == NULL) {
+        return srs_error_new(ERROR_QUIC_BAD_STREAM, "can not found quic stream %ld", stream_id);
+    }
+
+    if ((err = stream->read_header(header, msg, timeout)) != srs_success) {
+        return srs_error_wrap(err, "read stream %ld faled", stream_id);
+    }
+
+    return srs_success;
+}
+
+SrsQuicStream *SrsHttp3QuicTransport::create_new_stream(int64_t stream_id, const SrsQuicStreamDirection &direction,
+                                                        const SrsQuicStreamState &state)
+{
+    SrsQuicStream *new_stream = new SrsHttp3QuicStream(stream_id, direction, SrsQuicStreamStateOpened, this);
+    return new_stream;
 }
 
 srs_error_t SrsHttp3QuicTransport::write_data()
@@ -386,8 +409,7 @@ srs_error_t SrsHttp3QuicTransport::write_data()
     }
 
     if (in_draininig() || ngtcp2_conn_is_in_draining_period(conn_)) {
-        return srs_error_new(ERROR_QUIC_DRAINING,
-                             "quic conn in draining state");
+        return srs_error_new(ERROR_QUIC_DRAINING, "quic conn in draining state");
     }
 
     if ((err = write_stream_data(-1, NULL)) != srs_success) {
@@ -398,16 +420,17 @@ srs_error_t SrsHttp3QuicTransport::write_data()
         int fin = 0;
         nghttp3_vec vec[1];
         int64_t stream_id = -1;
-        int ret = nghttp3_conn_writev_stream(http3_conn_, &stream_id, &fin, vec,
-                                             sizeof(vec) / sizeof(vec[0]));
+        int ret = nghttp3_conn_writev_stream(http3_conn_, &stream_id, &fin, vec, sizeof(vec) / sizeof(vec[0]));
+
+        srs_trace("nghttp3_conn_writev_stream return %d", ret);
 
         if (ret <= 0) {
             break;
         }
 
-        // SrsQuicStream* stream = find_stream(stream_id);
-        SrsHttp3QuicStream *stream =
-            dynamic_cast<SrsHttp3QuicStream *>(find_stream(stream_id));
+        SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(stream_id));
+        srs_trace("@john, stream %ld, is_qpack_stream=%d, dump %d bytes data", stream_id, stream->is_qpack_stream(),
+                  vec[0].len);
         if (stream->is_qpack_stream()) {
             stream->get_write_buffer()->write(vec[0].base, vec[0].len);
         }
@@ -420,8 +443,7 @@ srs_error_t SrsHttp3QuicTransport::write_data()
     return update_transport_timer();
 }
 
-srs_error_t SrsHttp3QuicTransport::write_stream_data(
-    int64_t stream_id, SrsQuicStreamWriteBuffer *buffer)
+srs_error_t SrsHttp3QuicTransport::write_stream_data(int64_t stream_id, SrsQuicStreamWriteBuffer *buffer)
 {
     srs_error_t err = srs_success;
 
@@ -433,8 +455,7 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
     path.local.addr = reinterpret_cast<sockaddr *>(&local_addr_storage);
     path.remote.addr = reinterpret_cast<sockaddr *>(&remote_addr_storage);
 
-    size_t max_udp_payload_size =
-        ngtcp2_conn_get_path_max_udp_payload_size(conn_);
+    size_t max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
 
     while (true) {
         // No more stream data to write.
@@ -446,17 +467,15 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
         // packet if possiblity.
         uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
 
-        if (buffer &&
-            ngtcp2_conn_get_max_data_left(conn_) < max_udp_payload_size) {
+        if (buffer && ngtcp2_conn_get_max_data_left(conn_) < max_udp_payload_size) {
             return srs_error_new(ERROR_QUIC_AGAIN, "no data left in quic conn");
         }
 
         const uint8_t *data = buffer ? buffer->data_unsend() : NULL;
         size_t size = buffer ? buffer->consecutive_size_unsend() : 0;
         ngtcp2_tstamp pkt_ts = srs_get_system_time_for_quic();
-        int nwrite = ngtcp2_conn_write_stream(
-            conn_, &path, NULL, udp_send_buffer_, udp_send_buffer_size_,
-            &ndatalen, flags, stream_id, data, size, pkt_ts);
+        int nwrite = ngtcp2_conn_write_stream(conn_, &path, NULL, udp_send_buffer_, udp_send_buffer_size_, &ndatalen,
+                                              flags, stream_id, data, size, pkt_ts);
 
         ngtcp2_conn_update_pkt_tx_time(conn_, pkt_ts);
         if (nwrite == 0) {
@@ -468,17 +487,13 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
                 // Write failed becasue stream flow control.
                 case NGTCP2_ERR_STREAM_DATA_BLOCKED: {
                     int r0 = 0;
-                    if ((r0 = nghttp3_conn_block_stream(http3_conn_,
-                                                        stream_id)) != 0) {
-                        srs_error(
-                            "nghttp3_conn_block_stream %ld failed, err=%s",
-                            stream_id, nghttp3_strerror(r0));
+                    if ((r0 = nghttp3_conn_block_stream(http3_conn_, stream_id)) != 0) {
+                        srs_error("nghttp3_conn_block_stream %ld failed, err=%s", stream_id, nghttp3_strerror(r0));
                         // TODO: FIXME: return error.
                     }
+                    srs_error("nghttp3_conn_block_stream %ld", stream_id);
 
-                    return srs_error_new(ERROR_QUIC_AGAIN,
-                                         "quic conn stream %ld block",
-                                         stream_id);
+                    return srs_error_new(ERROR_QUIC_AGAIN, "quic conn stream %ld block", stream_id);
                 }
                 // Write failed becasuse stream in half close(write direction).
                 case NGTCP2_ERR_STREAM_SHUT_WR: {
@@ -486,22 +501,22 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
                 }
                 // Data has been cached, try merge write with next packet.
                 case NGTCP2_ERR_WRITE_MORE: {
+                    srs_trace("stream %ld write %d bytes", stream_id, ndatalen);
                     if (buffer) {
                         buffer->sent(ndatalen);
                     }
+                    nghttp3_conn_add_write_offset(http3_conn_, stream_id, ndatalen);
                     continue;
                 }
                 default: {
-                    srs_error("quic conn %s write stream %ld failed, err=%s",
-                              get_conn_name().c_str(), stream_id,
+                    srs_error("quic conn %s write stream %ld failed, err=%s", get_conn_name().c_str(), stream_id,
                               ngtcp2_strerror(nwrite));
                     srs_error_t err = on_error();
                     if (err != srs_success) {
                         srs_freep(err);
                     }
 
-                    return srs_error_new(ERROR_QUIC_CONN,
-                                         "quic conn unknown error");
+                    return srs_error_new(ERROR_QUIC_CONN, "quic conn unknown error");
                 }
             }
         }
@@ -509,20 +524,20 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
         if (ndatalen > 0) {
             if (buffer) {
                 buffer->sent(ndatalen);
+                nghttp3_conn_add_write_offset(http3_conn_, stream_id, ndatalen);
+                srs_trace("stream %ld write %d bytes", stream_id, ndatalen);
             }
         }
 
         if ((err = update_idle_timer()) != srs_success) {
-            srs_warn("update idle timer failed, err=%s",
-                     srs_error_desc(err).c_str());
+            srs_warn("update idle timer failed, err=%s", srs_error_desc(err).c_str());
             srs_freep(err);
         }
 
         // nwrite is the length of quic packet, include data and header,
         // ndatalen is the length of data.
         if (send_packet(&path, udp_send_buffer_, nwrite) <= 0) {
-            return srs_error_new(ERROR_QUIC_UDP_SEND,
-                                 "quic conn send udp packet error");
+            return srs_error_new(ERROR_QUIC_UDP_SEND, "quic conn send udp packet error");
         }
     }
 
@@ -531,8 +546,7 @@ srs_error_t SrsHttp3QuicTransport::write_stream_data(
 
 int SrsHttp3QuicTransport::begin_request_headers(int64_t stream_id)
 {
-    SrsHttp3QuicStream *stream =
-        dynamic_cast<SrsHttp3QuicStream *>(find_stream(stream_id));
+    SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(stream_id));
     if (stream == NULL) {
         return NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -548,6 +562,8 @@ srs_error_t SrsHttp3QuicTransport::open_ctrl_stream()
         return srs_error_wrap(err, "open ctrl stream failed");
     }
 
+    SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(ctrl_stream_id_));
+    stream->set_qpack_stream(true);
     nghttp3_conn_bind_control_stream(http3_conn_, ctrl_stream_id_);
 
     return err;
@@ -560,6 +576,9 @@ srs_error_t SrsHttp3QuicTransport::open_qpack_enc_stream()
         return srs_error_wrap(err, "open qpack enc stream failed");
     }
 
+    SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(qpack_enc_stream_id_));
+    stream->set_qpack_stream(true);
+
     return err;
 }
 
@@ -570,6 +589,9 @@ srs_error_t SrsHttp3QuicTransport::open_qpack_dec_stream()
         return srs_error_wrap(err, "open qpack dec stream failed");
     }
 
+    SrsHttp3QuicStream *stream = dynamic_cast<SrsHttp3QuicStream *>(find_stream(qpack_dec_stream_id_));
+    stream->set_qpack_stream(true);
+
     return err;
 }
 
@@ -577,28 +599,97 @@ srs_error_t SrsHttp3QuicTransport::bind_qpack_stream()
 {
     srs_error_t err = srs_success;
     int ret = 0;
-    if ((ret = nghttp3_conn_bind_qpack_streams(
-             http3_conn_, qpack_enc_stream_id_, qpack_dec_stream_id_)) != 0) {
-        return srs_error_new(ERROR_HTTP3, "bind qpack stream failed, ret=%d",
-                             ret);
+    if ((ret = nghttp3_conn_bind_qpack_streams(http3_conn_, qpack_enc_stream_id_, qpack_dec_stream_id_)) != 0) {
+        return srs_error_new(ERROR_HTTP3, "bind qpack stream failed, ret=%d", ret);
     }
     return err;
 }
 
-SrsHttp3QuicResponseWriter::SrsHttp3QuicResponseWriter(
-    SrsHttp3QuicStream *stream, ISrsProtocolReadWriter *io)
-    : SrsHttpResponseWriter(io), http3_stream_(stream)
+SrsHttp3StreamReadWriter::SrsHttp3StreamReadWriter(SrsHttp3QuicTransport *quic_transport, int64_t stream_id)
+{
+    quic_transport_ = quic_transport;
+    stream_id_ = stream_id;
+    send_timeout_ = SRS_UTIME_NO_TIMEOUT;
+    recv_timeout_ = SRS_UTIME_NO_TIMEOUT;
+}
+
+SrsHttp3StreamReadWriter::~SrsHttp3StreamReadWriter()
+{}
+
+void SrsHttp3StreamReadWriter::set_recv_timeout(srs_utime_t tm)
+{
+    recv_timeout_ = tm;
+}
+
+srs_utime_t SrsHttp3StreamReadWriter::get_recv_timeout()
+{
+    return recv_timeout_;
+}
+
+srs_error_t SrsHttp3StreamReadWriter::read_fully(void *buf, size_t size, ssize_t *nread)
+{
+    return quic_transport_->read_fully(stream_id_, buf, size, nread, recv_timeout_);
+}
+
+int64_t SrsHttp3StreamReadWriter::get_recv_bytes()
+{
+    return 0;
+}
+
+int64_t SrsHttp3StreamReadWriter::get_send_bytes()
+{
+    return 0;
+}
+
+srs_error_t SrsHttp3StreamReadWriter::read(void *buf, size_t size, ssize_t *nread)
+{
+    return quic_transport_->read(stream_id_, buf, size, nread, recv_timeout_);
+}
+
+void SrsHttp3StreamReadWriter::set_send_timeout(srs_utime_t tm)
+{
+    send_timeout_ = tm;
+}
+
+srs_utime_t SrsHttp3StreamReadWriter::get_send_timeout()
+{
+    return send_timeout_;
+}
+
+srs_error_t SrsHttp3StreamReadWriter::write(void *buf, size_t size, ssize_t *nwrite)
+{
+    return quic_transport_->write(stream_id_, buf, size, nwrite, send_timeout_);
+}
+
+srs_error_t SrsHttp3StreamReadWriter::writev(const iovec *iov, int iov_size, ssize_t *nwrite)
+{
+    srs_error_t err = srs_success;
+    for (int i = 0; i < iov_size; ++i) {
+        ssize_t nb;
+        if ((err = write(iov[i].iov_base, iov[i].iov_len, &nb)) != srs_success) {
+            return srs_error_wrap(err, "quic write failed");
+        }
+
+        *nwrite += nb;
+    }
+    return err;
+}
+
+SrsHttp3QuicResponseWriter::SrsHttp3QuicResponseWriter(SrsHttp3QuicTransport *quic_transport, int64_t stream_id,
+                                                       ISrsProtocolReadWriter *io)
+    : SrsHttpResponseWriter(io), quic_transport_(quic_transport), stream_id_(stream_id)
 {
     set_chunked(false);
 }
 
-SrsHttp3QuicResponseWriter::~SrsHttp3QuicResponseWriter() {}
+SrsHttp3QuicResponseWriter::~SrsHttp3QuicResponseWriter()
+{}
 
 srs_error_t SrsHttp3QuicResponseWriter::final_request()
 {
     srs_error_t err = srs_success;
 
-    http3_stream_->set_eof(true);
+    // TODO: FIXME: close stream
 
     srs_trace("@john, final request");
 
@@ -638,30 +729,25 @@ srs_error_t SrsHttp3QuicResponseWriter::send_header(char *data, int size)
     ss << status;
     http3_rsp_headers.push_back(make_http3_header(":status", ss.str()));
     srs_trace("status=%d", status);
-    for (std::map<std::string, std::string>::iterator iter = headers.begin();
-         iter != headers.end(); ++iter) {
+    for (std::map<std::string, std::string>::iterator iter = headers.begin(); iter != headers.end(); ++iter) {
         if (iter->first == "Connection") {
             continue;
         }
-        http3_rsp_headers.push_back(
-            make_http3_header(iter->first, iter->second));
-        srs_trace("http rsp header %s=%s", iter->first.c_str(),
-                  iter->second.c_str());
+        http3_rsp_headers.push_back(make_http3_header(iter->first, iter->second));
+        srs_trace("http rsp header %s=%s", iter->first.c_str(), iter->second.c_str());
     }
 
     nghttp3_data_reader dr;
     dr.read_data = dump_http3_data;
     int ret = 0;
-    if ((ret = nghttp3_conn_submit_response(
-             http3_stream_->get_nghttp3_conn(), http3_stream_->stream_id(),
-             http3_rsp_headers.data(), http3_rsp_headers.size(), &dr)) != 0) {
-        return srs_error_new(
-            ERROR_HTTP3, "nghttp3_conn_submit_response failed, ret=%d, err=%s",
-            ret, nghttp3_strerror(ret));
+    if ((ret = nghttp3_conn_submit_response(quic_transport_->get_nghttp3_conn(), stream_id_, http3_rsp_headers.data(),
+                                            http3_rsp_headers.size(), &dr)) != 0) {
+        srs_error("nghttp3_conn_submit_response failed, ret=%d, err=%s", ret, nghttp3_strerror(ret));
+        return srs_error_new(ERROR_HTTP3, "nghttp3_conn_submit_response failed, ret=%d, err=%s", ret,
+                             nghttp3_strerror(ret));
     }
 
-    srs_trace("stream_id=%ld http3 submit ret=%d", http3_stream_->stream_id(),
-              ret);
+    srs_trace("stream_id=%ld http3 submit ret=%d", stream_id_, ret);
 
     return err;
 }

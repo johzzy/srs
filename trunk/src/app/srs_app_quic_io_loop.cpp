@@ -26,20 +26,21 @@
 using namespace std;
 
 #include <srs_app_config.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_kernel_utility.hpp>
-#include <srs_kernel_log.hpp>
-#include <srs_app_statistic.hpp>
-#include <srs_app_utility.hpp>
+#include <srs_app_http3_quic_conn.hpp>
 #include <srs_app_pithy_print.hpp>
-#include <srs_core_autofree.hpp>
 #include <srs_app_quic_conn.hpp>
 #include <srs_app_quic_tls.hpp>
 #include <srs_app_quic_util.hpp>
-#include <srs_app_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_protocol_utility.hpp>
 #include <srs_app_rtc_forward.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_statistic.hpp>
+#include <srs_app_utility.hpp>
+#include <srs_core_autofree.hpp>
+#include <srs_kernel_error.hpp>
+#include <srs_kernel_log.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_protocol_utility.hpp>
+#include <srs_service_utility.hpp>
 
 SrsQuicListener::SrsQuicListener(ISrsQuicHandler* handler, SrsQuicListenerType type)
 {
@@ -104,9 +105,22 @@ std::string SrsQuicListener::get_cert()
     return "";
 }
 
-srs_error_t SrsQuicListener::on_udp_packet(SrsUdpMuxSocket* skt)
+srs_error_t SrsQuicListener::on_udp_packet(SrsUdpMuxSocket* skt) { return multiplexer_->on_udp_packet(skt, this); }
+
+SrsQuicTransport* SrsQuicListener::create_new_quic_conn(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
 {
-    return multiplexer_->on_udp_packet(skt, this);
+    SrsQuicTransport* quic_session = NULL;
+    if (listen_type_ == SrsQuicListenerRtcForward) {
+        quic_session = new SrsQuicConnection(multiplexer, ctx_id);
+    } else if (listen_type_ == SrsQuicListenerHttpApi) {
+        quic_session = new SrsHttp3QuicConnection(multiplexer, ctx_id);
+    } else if (listen_type_ == SrsQuicListenerHttpStream) {
+        quic_session = new SrsHttp3QuicConnection(multiplexer, ctx_id);
+    } else {
+        quic_session = new SrsQuicConnection(multiplexer, ctx_id);
+    }
+
+    return quic_session;
 }
 
 srs_error_t SrsQuicListener::on_accept_quic_conn(SrsQuicTransport* quic_session)
@@ -116,14 +130,11 @@ srs_error_t SrsQuicListener::on_accept_quic_conn(SrsQuicTransport* quic_session)
 
 SrsQuicMultiplexer::SrsQuicMultiplexer(SrsQuicListener* listener)
 {
-    quic_conn_map_ = new SrsResourceManager("quic conn map", true/*verbose*/);
+    quic_conn_map_ = new SrsResourceManager("quic conn map", true /*verbose*/);
     listener_ = listener;
 }
 
-SrsQuicMultiplexer::~SrsQuicMultiplexer()
-{
-    srs_freep(quic_conn_map_);
-}
+SrsQuicMultiplexer::~SrsQuicMultiplexer() { srs_freep(quic_conn_map_); }
 
 srs_error_t SrsQuicMultiplexer::initialize()
 {
@@ -131,15 +142,9 @@ srs_error_t SrsQuicMultiplexer::initialize()
     return err;
 }
 
-void SrsQuicMultiplexer::subscribe(SrsQuicTransport* quic_session)
-{
-    quic_conn_map_->subscribe(quic_session);
-}
+void SrsQuicMultiplexer::subscribe(SrsQuicTransport* quic_session) { quic_conn_map_->subscribe(quic_session); }
 
-void SrsQuicMultiplexer::unsubscribe(SrsQuicTransport* quic_session)
-{
-    quic_conn_map_->unsubscribe(quic_session);
-}
+void SrsQuicMultiplexer::unsubscribe(SrsQuicTransport* quic_session) { quic_conn_map_->unsubscribe(quic_session); }
 
 void SrsQuicMultiplexer::remove(ISrsResource* resource)
 {
@@ -151,18 +156,17 @@ srs_error_t SrsQuicMultiplexer::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListe
 {
     srs_error_t err = srs_success;
 
-    uint8_t* data = reinterpret_cast<uint8_t*>(skt->data()); 
+    uint8_t* data = reinterpret_cast<uint8_t*>(skt->data());
     int size = skt->size();
 
     uint32_t version = UINT32_MAX;
 
-    const uint8_t *dcid = NULL;
-    const uint8_t *scid = NULL;
+    const uint8_t* dcid = NULL;
+    const uint8_t* scid = NULL;
     size_t dcid_len = 0;
     size_t scid_len = 0;
 
-    int ret = ngtcp2_pkt_decode_version_cid(&version, &dcid, &dcid_len, &scid, &scid_len, 
-                                            data, size, kServerCidLen);
+    int ret = ngtcp2_pkt_decode_version_cid(&version, &dcid, &dcid_len, &scid, &scid_len, data, size, kServerCidLen);
     if (ret != 0) {
         if (ret == 1) {
             return send_version_negotiation(skt, version, dcid, dcid_len, scid, scid_len);
@@ -172,7 +176,7 @@ srs_error_t SrsQuicMultiplexer::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListe
     }
 
     srs_verbose("scid=%s, dcid=%s", quic_conn_id_dump(scid, scid_len).c_str(),
-        quic_conn_id_dump(dcid, dcid_len).c_str());
+                quic_conn_id_dump(dcid, dcid_len).c_str());
 
     SrsQuicTransport* quic_session = NULL;
     string connid(reinterpret_cast<const char*>(dcid), dcid_len);
@@ -183,11 +187,11 @@ srs_error_t SrsQuicMultiplexer::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListe
         quic_session->switch_to_context();
     } else {
         if (conn) {
-            return srs_error_new(ERROR_QUIC_CONN, "maybe duplicated conn %s", 
-                quic_conn_id_dump(dcid, dcid_len).c_str());
+            return srs_error_new(ERROR_QUIC_CONN, "maybe duplicated conn %s",
+                                 quic_conn_id_dump(dcid, dcid_len).c_str());
         }
-        // TODO: FIXME: 
-        // It maybe no a new connection,  when server side handshake loss and client 
+        // TODO: FIXME:
+        // It maybe no a new connection,  when server side handshake loss and client
         // retry connect can occru, have not implement this case.
         if ((err = new_connection(skt, listener, &quic_session)) != srs_success) {
             return srs_error_wrap(err, "create new quic connection failed");
@@ -197,14 +201,15 @@ srs_error_t SrsQuicMultiplexer::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListe
     return quic_session->on_udp_packet(skt, data, size);
 }
 
-srs_error_t SrsQuicMultiplexer::send_version_negotiation(SrsUdpMuxSocket* skt, const uint8_t version, 
-    const uint8_t* dcid, const size_t dcid_len, const uint8_t* scid, const size_t scid_len)
+srs_error_t SrsQuicMultiplexer::send_version_negotiation(SrsUdpMuxSocket* skt, const uint8_t version,
+                                                         const uint8_t* dcid, const size_t dcid_len,
+                                                         const uint8_t* scid, const size_t scid_len)
 {
     srs_error_t err = srs_success;
 
     vector<uint32_t> server_versions;
-    server_versions.push_back(generate_reserved_version(reinterpret_cast<const sockaddr*>(skt->peer_addr()), 
-        skt->peer_addrlen(), version));
+    server_versions.push_back(
+        generate_reserved_version(reinterpret_cast<const sockaddr*>(skt->peer_addr()), skt->peer_addrlen(), version));
     server_versions.push_back(NGTCP2_PROTO_VER_V1);
 
     for (uint32_t v = NGTCP2_PROTO_VER_MIN; v <= NGTCP2_PROTO_VER_MAX; ++v) {
@@ -212,8 +217,9 @@ srs_error_t SrsQuicMultiplexer::send_version_negotiation(SrsUdpMuxSocket* skt, c
     }
 
     char buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE];
-    int nb = ngtcp2_pkt_write_version_negotiation(reinterpret_cast<uint8_t*>(buf), sizeof(buf), 
-        (uint8_t)(random() % 256), dcid, dcid_len, scid, scid_len, server_versions.data(), server_versions.size());
+    int nb = ngtcp2_pkt_write_version_negotiation(reinterpret_cast<uint8_t*>(buf), sizeof(buf),
+                                                  (uint8_t)(random() % 256), dcid, dcid_len, scid, scid_len,
+                                                  server_versions.data(), server_versions.size());
     if (nb < 0) {
         return srs_error_new(ERROR_QUIC_CONN, "version negotiation failed, ret=%d", nb);
     }
@@ -225,11 +231,12 @@ srs_error_t SrsQuicMultiplexer::send_version_negotiation(SrsUdpMuxSocket* skt, c
     return err;
 }
 
-srs_error_t SrsQuicMultiplexer::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener, SrsQuicTransport** p_conn)
+srs_error_t SrsQuicMultiplexer::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener,
+                                               SrsQuicTransport** p_conn)
 {
     srs_error_t err = srs_success;
 
-    uint8_t* data = reinterpret_cast<uint8_t*>(skt->data()); 
+    uint8_t* data = reinterpret_cast<uint8_t*>(skt->data());
     int size = skt->size();
     ngtcp2_pkt_hd hd;
 
@@ -237,8 +244,8 @@ srs_error_t SrsQuicMultiplexer::new_connection(SrsUdpMuxSocket* skt, SrsQuicList
     if (ret == -1) {
         return srs_error_new(ERROR_QUIC_CONN, "accept failed, ret=%d(%s)", ret, ngtcp2_strerror(ret));
     } else if (ret == 1) {
-        srs_warn("quic client version=%u, server version %u-%u, need negotation", 
-            hd.version, NGTCP2_PROTO_VER_MIN, NGTCP2_PROTO_VER_MAX);
+        srs_warn("quic client version=%u, server version %u-%u, need negotation", hd.version, NGTCP2_PROTO_VER_MIN,
+                 NGTCP2_PROTO_VER_MAX);
         return send_version_negotiation(skt, hd.version, hd.scid.data, hd.scid.datalen, hd.dcid.data, hd.dcid.datalen);
     }
 
@@ -255,8 +262,8 @@ srs_error_t SrsQuicMultiplexer::new_connection(SrsUdpMuxSocket* skt, SrsQuicList
     }
 
     SrsContextId cid = _srs_context->get_id();
-    SrsQuicTransport* quic_session = new SrsQuicConnection(this, cid);
-    if ((err = dynamic_cast<SrsQuicConnection*>(quic_session)->accept(skt, &hd)) != srs_success) {
+    SrsQuicTransport* quic_session = listener_->create_new_quic_conn(this, cid);
+    if ((err = dynamic_cast<ISrsQuicServerConn*>(quic_session)->accept(skt, &hd)) != srs_success) {
         srs_freep(quic_session);
         return srs_error_wrap(err, "quic connect init failed");
     }

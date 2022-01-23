@@ -22,7 +22,6 @@
  */
 
 #include <srs_app_quic_buffer.hpp>
-
 #include <srs_core.hpp>
 #include <srs_kernel_log.hpp>
 
@@ -35,12 +34,9 @@ SrsQuicStreamReadBuffer::SrsQuicStreamReadBuffer(int capacity)
     buffer_ = new uint8_t[capacity_];
 }
 
-SrsQuicStreamReadBuffer::~SrsQuicStreamReadBuffer() 
-{
-    srs_freepa(buffer_);
-}
+SrsQuicStreamReadBuffer::~SrsQuicStreamReadBuffer() { srs_freepa(buffer_); }
 
-int SrsQuicStreamReadBuffer::write(const void *buf, int buf_size) 
+int SrsQuicStreamReadBuffer::write(const void *buf, int buf_size)
 {
     if (size_ == capacity_) {
         return 0;
@@ -49,16 +45,12 @@ int SrsQuicStreamReadBuffer::write(const void *buf, int buf_size)
     int size_write = 0;
     if (write_pos_ >= read_pos_) {
         size_write = srs_min(capacity_ - (write_pos_ - read_pos_), buf_size);
-        int write_size_to_buffer_end =
-            srs_min(capacity_ - write_pos_, size_write);
+        int write_size_to_buffer_end = srs_min(capacity_ - write_pos_, size_write);
         memcpy(buffer_ + write_pos_, buf, write_size_to_buffer_end);
 
-        int write_size_from_buffer_begin =
-            size_write - write_size_to_buffer_end;
+        int write_size_from_buffer_begin = size_write - write_size_to_buffer_end;
         if (write_size_from_buffer_begin > 0) {
-            memcpy(buffer_,
-                   static_cast<const uint8_t *>(buf) + write_size_to_buffer_end,
-                   write_size_from_buffer_begin);
+            memcpy(buffer_, static_cast<const uint8_t *>(buf) + write_size_to_buffer_end, write_size_from_buffer_begin);
         }
 
         write_pos_ += size_write;
@@ -99,11 +91,9 @@ int SrsQuicStreamReadBuffer::read(void *buf, int buf_size)
             memcpy(buf, buffer_ + read_pos_, size_read_to_buffer_end);
         }
 
-        int size_read_from_buffer_begin =
-            srs_min(buf_size - size_read_to_buffer_end, write_pos_);
+        int size_read_from_buffer_begin = srs_min(buf_size - size_read_to_buffer_end, write_pos_);
         if (size_read_from_buffer_begin && buf) {
-            memcpy(static_cast<uint8_t *>(buf) + size_read_to_buffer_end,
-                   buffer_, size_read_from_buffer_begin);
+            memcpy(static_cast<uint8_t *>(buf) + size_read_to_buffer_end, buffer_, size_read_from_buffer_begin);
         }
 
         size_read = size_read_to_buffer_end + size_read_from_buffer_begin;
@@ -127,12 +117,9 @@ SrsQuicStreamWriteBuffer::SrsQuicStreamWriteBuffer(int capacity)
     buffer_ = new uint8_t[capacity_];
 }
 
-SrsQuicStreamWriteBuffer::~SrsQuicStreamWriteBuffer() 
-{
-    srs_freepa(buffer_);
-}
+SrsQuicStreamWriteBuffer::~SrsQuicStreamWriteBuffer() { srs_freepa(buffer_); }
 
-int SrsQuicStreamWriteBuffer::write(const void *buf, int buf_size) 
+int SrsQuicStreamWriteBuffer::write(const void *buf, int buf_size)
 {
     if (size_ == capacity_) {
         return 0;
@@ -141,16 +128,12 @@ int SrsQuicStreamWriteBuffer::write(const void *buf, int buf_size)
     int size_write = 0;
     if (write_pos_ >= acked_pos_) {
         size_write = srs_min(capacity_ - (write_pos_ - acked_pos_), buf_size);
-        int write_size_to_buffer_end =
-            srs_min(capacity_ - write_pos_, size_write);
+        int write_size_to_buffer_end = srs_min(capacity_ - write_pos_, size_write);
         memcpy(buffer_ + write_pos_, buf, write_size_to_buffer_end);
 
-        int write_size_from_buffer_begin =
-            size_write - write_size_to_buffer_end;
+        int write_size_from_buffer_begin = size_write - write_size_to_buffer_end;
         if (write_size_from_buffer_begin > 0) {
-            memcpy(buffer_,
-                   static_cast<const uint8_t *>(buf) + write_size_to_buffer_end,
-                   write_size_from_buffer_begin);
+            memcpy(buffer_, static_cast<const uint8_t *>(buf) + write_size_to_buffer_end, write_size_from_buffer_begin);
         }
 
         write_pos_ += size_write;
@@ -167,12 +150,9 @@ int SrsQuicStreamWriteBuffer::write(const void *buf, int buf_size)
     return size_write;
 }
 
-uint8_t *SrsQuicStreamWriteBuffer::data_unsend() 
-{
-    return buffer_ + send_pos_;
-}
+uint8_t *SrsQuicStreamWriteBuffer::data_unsend() { return buffer_ + send_pos_; }
 
-int SrsQuicStreamWriteBuffer::consecutive_size_unsend() 
+int SrsQuicStreamWriteBuffer::consecutive_size_unsend()
 {
     if (size_unsend_ == 0) {
         return 0;
@@ -185,7 +165,7 @@ int SrsQuicStreamWriteBuffer::consecutive_size_unsend()
     return capacity_ - send_pos_;
 }
 
-int SrsQuicStreamWriteBuffer::sent(int data_size) 
+int SrsQuicStreamWriteBuffer::sent(int data_size)
 {
     if (size_unsend_ == 0) {
         return 0;
@@ -199,10 +179,8 @@ int SrsQuicStreamWriteBuffer::sent(int data_size)
         size_sent = srs_min((write_pos_ - send_pos_), data_size);
         send_pos_ += size_sent;
     } else {
-        int size_read_to_buffer_end =
-            srs_min(capacity_ - send_pos_, data_size);
-        int size_read_from_buffer_begin =
-            srs_min(data_size - size_read_to_buffer_end, write_pos_);
+        int size_read_to_buffer_end = srs_min(capacity_ - send_pos_, data_size);
+        int size_read_from_buffer_begin = srs_min(data_size - size_read_to_buffer_end, write_pos_);
         size_sent = size_read_to_buffer_end + size_read_from_buffer_begin;
         send_pos_ += size_sent;
     }
@@ -212,7 +190,7 @@ int SrsQuicStreamWriteBuffer::sent(int data_size)
     return size_sent;
 }
 
-int SrsQuicStreamWriteBuffer::acked(int data_size) 
+int SrsQuicStreamWriteBuffer::acked(int data_size)
 {
     if (size_ == 0) {
         return 0;
@@ -226,10 +204,8 @@ int SrsQuicStreamWriteBuffer::acked(int data_size)
         size_acked = srs_min((send_pos_ - acked_pos_), data_size);
         acked_pos_ += size_acked;
     } else {
-        int size_read_to_buffer_end =
-            srs_min(capacity_ - acked_pos_, data_size);
-        int size_read_from_buffer_begin =
-            srs_min(data_size - size_read_to_buffer_end, send_pos_);
+        int size_read_to_buffer_end = srs_min(capacity_ - acked_pos_, data_size);
+        int size_read_from_buffer_begin = srs_min(data_size - size_read_to_buffer_end, send_pos_);
         size_acked = size_read_to_buffer_end + size_read_from_buffer_begin;
         acked_pos_ += size_acked;
     }

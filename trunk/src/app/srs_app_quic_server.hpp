@@ -24,15 +24,13 @@
 #ifndef SRS_APP_QUIC_SERVER_HPP
 #define SRS_APP_QUIC_SERVER_HPP
 
-#include <srs_core.hpp>
-
-#include <srs_app_listener.hpp>
-#include <srs_app_st.hpp>
-#include <srs_app_reload.hpp>
 #include <srs_app_hourglass.hpp>
 #include <srs_app_hybrid.hpp>
+#include <srs_app_listener.hpp>
 #include <srs_app_quic_io_loop.hpp>
-
+#include <srs_app_reload.hpp>
+#include <srs_app_st.hpp>
+#include <srs_core.hpp>
 #include <string>
 
 class SrsHourGlass;
@@ -49,22 +47,26 @@ class SrsQuicServer : public ISrsQuicHandler
 public:
     SrsQuicServer();
     virtual ~SrsQuicServer();
-// Interface for ISrsQuicHandler
+    // Interface for ISrsQuicHandler
 public:
     virtual srs_error_t on_quic_client(SrsQuicTransport* conn, SrsQuicListenerType type);
     void remove(ISrsResource* resource);
+
 public:
     srs_error_t initialize();
+
 public:
     // TODO: FIXME: Support gracefully quit.
     // TODO: FIXME: Support reload.
     srs_error_t listen();
+
 private:
     // Client multiplexer, avoid create too many socket st thread.
     srs_error_t listen_client();
     srs_error_t listen_http_api_quic();
     srs_error_t listen_http_stream_quic();
     srs_error_t listen_rtc_server_quic();
+
 private:
     std::vector<SrsQuicListener*> listeners_;
     // Manager QUIC connections(in application layer).
@@ -76,9 +78,11 @@ class SrsQuicServerAdapter : public ISrsHybridServer
 {
 private:
     SrsQuicServer* quic_;
+
 public:
     SrsQuicServerAdapter();
     virtual ~SrsQuicServerAdapter();
+
 public:
     virtual srs_error_t initialize();
     virtual srs_error_t run();

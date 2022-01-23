@@ -25,25 +25,24 @@
 
 using namespace std;
 
+#include <netdb.h>
 #include <ngtcp2/ngtcp2_crypto.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
+#include <srs_app_config.hpp>
+#include <srs_app_quic_server.hpp>
+#include <srs_app_quic_tls.hpp>
+#include <srs_app_quic_util.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_utility.hpp>
 #include <srs_core_autofree.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
-#include <srs_app_utility.hpp>
-#include <srs_app_config.hpp>
-#include <srs_app_server.hpp>
-#include <srs_app_quic_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_service_st.hpp>
 #include <srs_protocol_utility.hpp>
-#include <srs_app_quic_tls.hpp>
-#include <srs_app_quic_util.hpp>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
+#include <srs_service_st.hpp>
+#include <srs_service_utility.hpp>
 
 SrsQuicClient::SrsQuicClient(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
     : SrsQuicTransport(multiplexer, ctx_id)
@@ -61,7 +60,7 @@ SrsQuicClient::~SrsQuicClient()
     }
 }
 
-ngtcp2_settings SrsQuicClient::build_quic_settings(uint8_t* token , size_t tokenlen)
+ngtcp2_settings SrsQuicClient::build_quic_settings(uint8_t* token, size_t tokenlen)
 {
     ngtcp2_settings settings;
     ngtcp2_settings_default(&settings);
@@ -69,26 +68,27 @@ ngtcp2_settings SrsQuicClient::build_quic_settings(uint8_t* token , size_t token
     // TODO: FIXME: conf this values using SrsQuicParam struct.
     settings.log_printf = ngtcp2_log_handle;
     settings.qlog.write = qlog_handle;
-	settings.initial_ts = srs_get_system_time_for_quic();
-  	settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-  	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
+    settings.initial_ts = srs_get_system_time_for_quic();
+    settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    settings.cc_algo = NGTCP2_CC_ALGO_BBR;
 
     return settings;
 }
 
 ngtcp2_transport_params SrsQuicClient::build_quic_transport_params(ngtcp2_cid* original_dcid)
 {
-	ngtcp2_transport_params params;
+    ngtcp2_transport_params params;
     ngtcp2_transport_params_default(&params);
 
-  	params.initial_max_stream_data_bidi_local = kStreamDataSize;
-  	params.initial_max_stream_data_bidi_remote = kStreamDataSize;
-  	params.initial_max_stream_data_uni = kStreamDataSize;;
-  	params.initial_max_data = 2 * kStreamDataSize;
-  	params.initial_max_streams_bidi = 4;
-  	params.initial_max_streams_uni = 4;
-  	params.max_idle_timeout = 15 * NGTCP2_SECONDS;
-  	params.active_connection_id_limit = 7;
+    params.initial_max_stream_data_bidi_local = kStreamDataSize;
+    params.initial_max_stream_data_bidi_remote = kStreamDataSize;
+    params.initial_max_stream_data_uni = kStreamDataSize;
+    ;
+    params.initial_max_data = 2 * kStreamDataSize;
+    params.initial_max_streams_bidi = 4;
+    params.initial_max_streams_uni = 4;
+    params.max_idle_timeout = 15 * NGTCP2_SECONDS;
+    params.active_connection_id_limit = 7;
 
     return params;
 }
@@ -101,22 +101,22 @@ srs_error_t SrsQuicClient::create_udp_socket(const std::string& ip)
     addrinfo hints;
     memset(&hints, 0, sizeof(hints));
     // TODO: FIXME: IPv6 need support?
-    hints.ai_family   = AF_INET;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_flags    = AI_NUMERICHOST;
+    hints.ai_flags = AI_NUMERICHOST;
 
-    addrinfo* r  = NULL;
+    addrinfo* r = NULL;
     SrsAutoFree(addrinfo, r);
     int ret = 0;
-    if((ret = getaddrinfo(ip.c_str(), "", (const addrinfo*)&hints, &r))) {
-        return srs_error_new(ERROR_SYSTEM_IP_INVALID, "getaddrinfo hints=(%d,%d,%d), err=%s",
-            hints.ai_family, hints.ai_socktype, hints.ai_flags, gai_strerror(ret));
+    if ((ret = getaddrinfo(ip.c_str(), "", (const addrinfo*)&hints, &r))) {
+        return srs_error_new(ERROR_SYSTEM_IP_INVALID, "getaddrinfo hints=(%d,%d,%d), err=%s", hints.ai_family,
+                             hints.ai_socktype, hints.ai_flags, gai_strerror(ret));
     }
 
     int fd = 0;
     if ((fd = socket(r->ai_family, r->ai_socktype, r->ai_protocol)) == -1) {
-        return srs_error_new(ERROR_SOCKET_CREATE, "socket domain=%d, type=%d, protocol=%d",
-            r->ai_family, r->ai_socktype, r->ai_protocol);
+        return srs_error_new(ERROR_SOCKET_CREATE, "socket domain=%d, type=%d, protocol=%d", r->ai_family,
+                             r->ai_socktype, r->ai_protocol);
     }
 
     for (addrinfo* rp = r; rp; rp = rp->ai_next) {
@@ -164,7 +164,7 @@ srs_error_t SrsQuicClient::create_udp_socket(const std::string& ip)
         srs_trace("fd=%d, except_rcvbuf=%d, actual_rcvbuf=%d", fd, except_rcvbuf, actual_rcvbuf);
     }
 
-	return err;
+    return err;
 }
 
 srs_error_t SrsQuicClient::create_udp_io_thread()
@@ -180,10 +180,9 @@ srs_error_t SrsQuicClient::create_udp_io_thread()
     return err;
 }
 
-srs_error_t SrsQuicClient::init(sockaddr* local_addr, const socklen_t local_addrlen,
-        sockaddr* remote_addr, const socklen_t remote_addrlen,
-        ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
-        uint8_t* token, const size_t tokenlen)
+srs_error_t SrsQuicClient::init(sockaddr* local_addr, const socklen_t local_addrlen, sockaddr* remote_addr,
+                                const socklen_t remote_addrlen, ngtcp2_cid* scid, ngtcp2_cid* dcid,
+                                const uint32_t version, uint8_t* token, const size_t tokenlen)
 {
     srs_error_t err = srs_success;
 
@@ -203,14 +202,14 @@ srs_error_t SrsQuicClient::init(sockaddr* local_addr, const socklen_t local_addr
         return srs_error_wrap(err, "init quic token failed");
     }
 
-    ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_), 
-        local_addr_len_, reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
+    ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
+                                       reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
 
     settings_ = build_quic_settings(token, tokenlen);
     transport_params_ = build_quic_transport_params(NULL);
 
-    int ret = ngtcp2_conn_client_new(&conn_, dcid, scid, &path,
-        version, &cb_, &settings_, &transport_params_, NULL, this);
+    int ret =
+        ngtcp2_conn_client_new(&conn_, dcid, scid, &path, version, &cb_, &settings_, &transport_params_, NULL, this);
 
     if (ret != 0) {
         return srs_error_new(ERROR_QUIC_CONN, "init quic client failed, err=%s", ngtcp2_strerror(ret));
@@ -256,9 +255,9 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
         }
     }
 
-	if ((err = init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
-                    reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_,
-                    &scid_, &dcid_, NGTCP2_PROTO_VER_MIN, NULL, 0)) != srs_success) {
+    if ((err = init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
+                    reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_, &scid_, &dcid_, NGTCP2_PROTO_VER_MIN,
+                    NULL, 0)) != srs_success) {
         return srs_error_wrap(err, "connect to %s:%u failed", ip.c_str(), port);
     }
 
@@ -289,7 +288,7 @@ int SrsQuicClient::handshake_completed()
 
 srs_error_t SrsQuicClient::cycle()
 {
-       srs_error_t err = srs_success;
+    srs_error_t err = srs_success;
 
     uint8_t buf[1600];
     int nb_buf = sizeof(buf);
@@ -299,19 +298,20 @@ srs_error_t SrsQuicClient::cycle()
             return srs_error_wrap(err, "quic client io thread");
         }
 
-        int nread = srs_recvfrom(udp_fd_, buf, nb_buf, (sockaddr*)&remote_addr_, (int*)&remote_addr_len_, SRS_UTIME_NO_TIMEOUT);
+        int nread =
+            srs_recvfrom(udp_fd_, buf, nb_buf, (sockaddr*)&remote_addr_, (int*)&remote_addr_len_, SRS_UTIME_NO_TIMEOUT);
         if (nread <= 0) {
             srs_warn("quic client udp recv failed, ret=%d", nread);
             continue;
         }
 
         ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
-            reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
+                                           reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
 
         if ((err = on_data(&path, buf, nread)) != srs_success) {
             return srs_error_wrap(err, "quic client process packet failed");
         }
-       }
+    }
 
     return err;
 }

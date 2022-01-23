@@ -24,23 +24,22 @@
 #ifndef SRS_APP_QUIC_CONN_HPP
 #define SRS_APP_QUIC_CONN_HPP
 
-#include <srs_core.hpp>
-#include <srs_app_listener.hpp>
-#include <srs_app_hourglass.hpp>
-#include <srs_service_st.hpp>
-#include <srs_kernel_utility.hpp>
-#include <srs_app_reload.hpp>
-#include <srs_service_conn.hpp>
-#include <srs_app_conn.hpp>
-#include <srs_app_quic_transport.hpp>
-
-#include <deque>
-#include <string>
-#include <map>
-#include <vector>
+#include <ngtcp2/ngtcp2.h>
 #include <sys/socket.h>
 
-#include <ngtcp2/ngtcp2.h>
+#include <deque>
+#include <map>
+#include <srs_app_conn.hpp>
+#include <srs_app_hourglass.hpp>
+#include <srs_app_listener.hpp>
+#include <srs_app_quic_transport.hpp>
+#include <srs_app_reload.hpp>
+#include <srs_core.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_service_conn.hpp>
+#include <srs_service_st.hpp>
+#include <string>
+#include <vector>
 
 class SrsQuicMultiplexer;
 class SrsUdpMuxSocket;
@@ -48,25 +47,25 @@ class SrsQuicTlsServerSession;
 class SrsQuicConnection;
 
 // Quic connection which accept from client.
-class SrsQuicConnection : public SrsQuicTransport, virtual public ISrsResource
-    , virtual public ISrsDisposingHandler
+class SrsQuicConnection : public SrsQuicTransport, public ISrsQuicServerConn
 {
 public:
     SrsQuicConnection(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id);
-  	~SrsQuicConnection();
+    ~SrsQuicConnection();
+
 public:
-    srs_error_t accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd);
-// Interface SrsQuicTransport
-private:
-    virtual ngtcp2_settings build_quic_settings(uint8_t* token , size_t tokenlen);
+    virtual srs_error_t accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd);
+    // Interface SrsQuicTransport
+protected:
+    virtual ngtcp2_settings build_quic_settings(uint8_t* token, size_t tokenlen);
     virtual ngtcp2_transport_params build_quic_transport_params(ngtcp2_cid* original_dcid);
     virtual int handshake_completed();
-    virtual srs_error_t init(sockaddr* local_addr, const socklen_t local_addrlen,
-                sockaddr* remote_addr, const socklen_t remote_addrlen,
-                ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
-                uint8_t* token, const size_t tokenlen);
+    virtual srs_error_t init(sockaddr* local_addr, const socklen_t local_addrlen, sockaddr* remote_addr,
+                             const socklen_t remote_addrlen, ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
+                             uint8_t* token, const size_t tokenlen);
+
 public:
-  	bool is_alive();
+    bool is_alive();
 };
 
 #endif

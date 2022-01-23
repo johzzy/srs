@@ -26,7 +26,7 @@
 
 #include <srs_kernel_utility.hpp>
 
-class SrsQuicStreamReadBuffer 
+class SrsQuicStreamReadBuffer
 {
 public:
     SrsQuicStreamReadBuffer(int size);
@@ -49,10 +49,10 @@ private:
     // Start of  read position.
     int read_pos_;
     // Ring buffer.
-    uint8_t* buffer_;
+    uint8_t *buffer_;
 };
 
-class SrsQuicStreamWriteBuffer 
+class SrsQuicStreamWriteBuffer
 {
 public:
     SrsQuicStreamWriteBuffer(int size);
@@ -83,7 +83,7 @@ private:
     // Current acked position.
     int acked_pos_;
     // Ring buffer.
-    uint8_t* buffer_;
+    uint8_t *buffer_;
 };
 
 #endif

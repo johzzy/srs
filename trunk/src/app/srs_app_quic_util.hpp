@@ -24,20 +24,19 @@
 #ifndef SRS_APP_QUIC_UTIL_HPP
 #define SRS_APP_QUIC_UTIL_HPP
 
-#include <srs_core.hpp>
-#include <srs_kernel_utility.hpp>
-
-#include <deque>
-#include <string>
-#include <map>
-#include <vector>
-
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 
+#include <deque>
+#include <map>
+#include <srs_core.hpp>
+#include <srs_kernel_utility.hpp>
+#include <string>
+#include <vector>
+
 // Dump quic conn id from bin to hex format.
-extern std::string quic_conn_id_dump(const uint8_t* data, const size_t len);
-extern std::string quic_conn_id_dump(const std::string& connid);
+extern std::string quic_conn_id_dump(const uint8_t *data, const size_t len);
+extern std::string quic_conn_id_dump(const std::string &connid);
 
 extern uint32_t generate_reserved_version(const sockaddr *sa, socklen_t salen, uint32_t version);
 
@@ -46,9 +45,9 @@ extern void ngtcp2_log_handle(void *user_data, const char *fmt, ...);
 // qlog handler
 extern void qlog_handle(void *user_data, uint32_t flags, const void *data, size_t datalen);
 // dump quic conn stat.
-extern std::string dump_quic_conn_stat(ngtcp2_conn* conn);
+extern std::string dump_quic_conn_stat(ngtcp2_conn *conn);
 // Generate |destlen| size random data and write to |dest|.
-extern int srs_generate_rand_data(uint8_t* dest, size_t destlen);
+extern int srs_generate_rand_data(uint8_t *dest, size_t destlen);
 // Return systime in ns resolution.
 extern ngtcp2_tstamp srs_get_system_time_for_quic();
 
@@ -64,10 +63,12 @@ class SrsQuicToken
 public:
     SrsQuicToken();
     ~SrsQuicToken();
+
 public:
     srs_error_t init();
-    uint8_t* get_static_secret() { return static_secret_; }
+    uint8_t *get_static_secret() { return static_secret_; }
     size_t get_static_secret_len() { return sizeof(static_secret_); }
+
 public:
     int generate_secret(uint8_t *secret, size_t secretlen);
     int generate_token(uint8_t *token, size_t &tokenlen, const sockaddr *addr, size_t addrlen);

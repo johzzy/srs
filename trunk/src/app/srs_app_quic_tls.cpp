@@ -25,31 +25,30 @@
 
 using namespace std;
 
-#include <srs_app_config.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_kernel_utility.hpp>
-#include <srs_kernel_log.hpp>
-#include <srs_app_statistic.hpp>
-#include <srs_app_utility.hpp>
-#include <srs_app_pithy_print.hpp>
-#include <srs_core_autofree.hpp>
-#include <srs_app_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_protocol_utility.hpp>
-#include <srs_app_quic_transport.hpp>
-
+#include <ngtcp2/ngtcp2_crypto_openssl.h>
 #include <openssl/err.h>
 
-#include <ngtcp2/ngtcp2_crypto_openssl.h>
+#include <srs_app_config.hpp>
+#include <srs_app_pithy_print.hpp>
+#include <srs_app_quic_transport.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_statistic.hpp>
+#include <srs_app_utility.hpp>
+#include <srs_core_autofree.hpp>
+#include <srs_kernel_error.hpp>
+#include <srs_kernel_log.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_protocol_utility.hpp>
+#include <srs_service_utility.hpp>
 
-const string kDefaultCiphers = 
+const string kDefaultCiphers =
     "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:"
     "TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_CCM_SHA256";
 
 const string kDefaultGroups = "X25519:P-256:P-384:P-521";
 
 // TODO: FIXME: Currently hardcode, hq, h3 and other alpn must be set by application.
-const string kHqAlpnDraft29 = "\x5h3-29"; 
+const string kHqAlpnDraft29 = "\x5h3-29";
 const string kHqAlpnDraft30 = "\x5h3-30";
 const string kHqAlpnDraft31 = "\x5h3-31";
 const string kHqAlpnDraft32 = "\x5h3-32";
@@ -64,160 +63,140 @@ const uint32_t QUIC_VER_V1 = 0x000000001u;
 
 namespace srs_ssl_quic_common {
 
-static int flush_flight(SSL *ssl) 
-{ 
-    return 1; 
-}
+static int flush_flight(SSL *ssl) { return 1; }
 
-static int send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert) 
+static int send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
 {
-  	SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport*>(SSL_get_app_data(ssl));
-  	quic_transport->set_tls_alert(alert);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(SSL_get_app_data(ssl));
+    quic_transport->set_tls_alert(alert);
 
-  	return 1;
+    return 1;
 }
 
-static int add_handshake_data(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level,
-                       const uint8_t *data, size_t len) 
+static int add_handshake_data(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level, const uint8_t *data, size_t len)
 {
-  	SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport*>(SSL_get_app_data(ssl));
-  	ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(SSL_get_app_data(ssl));
+    ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
 
-  	quic_transport->write_handshake(level, data, len);
+    quic_transport->write_handshake(level, data, len);
 
-  	return 1;
+    return 1;
 }
 
-} // namespace srs_ssl_quic_common
+}  // namespace srs_ssl_quic_common
 
 namespace srs_ssl_quic_server {
 
 // ALPN: @see https://en.wikipedia.org/wiki/Application-Layer_Protocol_Negotiation
 // TODO: FIXME: QUIC application set this alpn as a call back function.
-static int alpn_select_proto_hq_cb(SSL *ssl, const uint8_t **out,
-                                  uint8_t *outlen, const uint8_t *in,
-                                  unsigned int inlen, void *arg) 
+static int alpn_select_proto_hq_cb(SSL *ssl, const uint8_t **out, uint8_t *outlen, const uint8_t *in,
+                                   unsigned int inlen, void *arg)
 {
-    SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport*>(SSL_get_app_data(ssl));
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(SSL_get_app_data(ssl));
     const uint8_t *alpn;
     size_t alpnlen;
     uint32_t version = ngtcp2_conn_get_negotiated_version(quic_transport->conn());
 
     switch (version) {
-    	case QUIC_VER_DRAFT29:
-    	  	alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft29.data());
-    	  	alpnlen = kHqAlpnDraft29.size();
-    	  	break;
-    	case QUIC_VER_DRAFT30:
-    	  	alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft30.data());
-    	  	alpnlen = kHqAlpnDraft30.size();
-    	  	break;
-    	case QUIC_VER_DRAFT31:
-    	  	alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft31.data());
-    	  	alpnlen = kHqAlpnDraft31.size();
-    	  	break;
-    	case QUIC_VER_DRAFT32:
-    	  	alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft32.data());
-    	  	alpnlen = kHqAlpnDraft32.size();
-    	  	break;
+        case QUIC_VER_DRAFT29:
+            alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft29.data());
+            alpnlen = kHqAlpnDraft29.size();
+            break;
+        case QUIC_VER_DRAFT30:
+            alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft30.data());
+            alpnlen = kHqAlpnDraft30.size();
+            break;
+        case QUIC_VER_DRAFT31:
+            alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft31.data());
+            alpnlen = kHqAlpnDraft31.size();
+            break;
+        case QUIC_VER_DRAFT32:
+            alpn = reinterpret_cast<const uint8_t *>(kHqAlpnDraft32.data());
+            alpnlen = kHqAlpnDraft32.size();
+            break;
         case QUIC_VER_V1:
-    	  	alpn = reinterpret_cast<const uint8_t *>(kHqAlpnV1.data());
-    	  	alpnlen = kHqAlpnV1.size();
-    	  	break;
-    	default:
+            alpn = reinterpret_cast<const uint8_t *>(kHqAlpnV1.data());
+            alpnlen = kHqAlpnV1.size();
+            break;
+        default:
             srs_warn("unsupport quic version=%u", version);
-    		return SSL_TLSEXT_ERR_ALERT_FATAL;
+            return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
 
-    for (const uint8_t* p = in; p + alpnlen <= in + inlen; p += *p + 1) {
+    for (const uint8_t *p = in; p + alpnlen <= in + inlen; p += *p + 1) {
         if (memcmp(alpn, p, alpnlen) == 0) {
-      	  	*out = p + 1;
-      	  	*outlen = *p;
-            srs_info("quic choose alpn %s", 
-                string(reinterpret_cast<const char*>(*out), (size_t)(*outlen)).c_str());
-      	  	return SSL_TLSEXT_ERR_OK;
-      	}
+            *out = p + 1;
+            *outlen = *p;
+            srs_info("quic choose alpn %s", string(reinterpret_cast<const char *>(*out), (size_t)(*outlen)).c_str());
+            return SSL_TLSEXT_ERR_OK;
+        }
     }
 
     return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
-
-static int set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level,
-                                  const uint8_t *read_secret,
-                                  const uint8_t *write_secret, size_t secret_len) 
+static int set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level, const uint8_t *read_secret,
+                                  const uint8_t *write_secret, size_t secret_len)
 {
-  	SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport*>(SSL_get_app_data(ssl));
-  	ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(SSL_get_app_data(ssl));
+    ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
 
     int ret = quic_transport->on_rx_key(level, read_secret, secret_len);
     if (ret != 0) {
         return 0;
     }
-  	if (write_secret) {
+    if (write_secret) {
         ret = quic_transport->on_tx_key(level, write_secret, secret_len);
         if (ret != 0) {
             return 0;
         }
-  	  	if (level == NGTCP2_CRYPTO_LEVEL_APPLICATION && quic_transport->on_application_tx_key() != 0) {
-  	    	return 0;
-  	  	}
-  	}
+        if (level == NGTCP2_CRYPTO_LEVEL_APPLICATION && quic_transport->on_application_tx_key() != 0) {
+            return 0;
+        }
+    }
 
-  	return 1;
+    return 1;
 }
 
-} // namespace srs_ssl_quic_server
+}  // namespace srs_ssl_quic_server
 
-namespace srs_ssl_quic_client
-{
+namespace srs_ssl_quic_client {
 
-static int set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level,
-                                  const uint8_t *read_secret,
-                                  const uint8_t *write_secret, size_t secret_len) 
+static int set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL ossl_level, const uint8_t *read_secret,
+                                  const uint8_t *write_secret, size_t secret_len)
 {
-  	SrsQuicTransport* quic_transport = static_cast<SrsQuicTransport*>(SSL_get_app_data(ssl));
-  	ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
+    SrsQuicTransport *quic_transport = static_cast<SrsQuicTransport *>(SSL_get_app_data(ssl));
+    ngtcp2_crypto_level level = ngtcp2_crypto_openssl_from_ossl_encryption_level(ossl_level);
 
     if (read_secret) {
         if (quic_transport->on_rx_key(level, read_secret, secret_len) != 0) {
             return 0;
         }
-  	  	if (level == NGTCP2_CRYPTO_LEVEL_APPLICATION && 
-            quic_transport->on_application_tx_key() != 0) {
-  	    		return 0;
-  	  	}
+        if (level == NGTCP2_CRYPTO_LEVEL_APPLICATION && quic_transport->on_application_tx_key() != 0) {
+            return 0;
+        }
     }
 
     if (quic_transport->on_tx_key(level, write_secret, secret_len) != 0) {
         return 0;
     }
 
-  	return 1;
+    return 1;
 }
 
-} // namespace srs_ssl_quic_client
+}  // namespace srs_ssl_quic_client
 
-SSL_QUIC_METHOD ssl_quic_server_method = 
-{
-    .set_encryption_secrets = srs_ssl_quic_server::set_encryption_secrets,
-    .add_handshake_data = srs_ssl_quic_common::add_handshake_data,
-    .flush_flight = srs_ssl_quic_common::flush_flight,
-    .send_alert = srs_ssl_quic_common::send_alert
-};
+SSL_QUIC_METHOD ssl_quic_server_method = {.set_encryption_secrets = srs_ssl_quic_server::set_encryption_secrets,
+                                          .add_handshake_data = srs_ssl_quic_common::add_handshake_data,
+                                          .flush_flight = srs_ssl_quic_common::flush_flight,
+                                          .send_alert = srs_ssl_quic_common::send_alert};
 
-SSL_QUIC_METHOD ssl_quic_client_method = 
-{
-    .set_encryption_secrets = srs_ssl_quic_client::set_encryption_secrets,
-    .add_handshake_data = srs_ssl_quic_common::add_handshake_data,
-    .flush_flight = srs_ssl_quic_common::flush_flight,
-    .send_alert = srs_ssl_quic_common::send_alert
-};
+SSL_QUIC_METHOD ssl_quic_client_method = {.set_encryption_secrets = srs_ssl_quic_client::set_encryption_secrets,
+                                          .add_handshake_data = srs_ssl_quic_common::add_handshake_data,
+                                          .flush_flight = srs_ssl_quic_common::flush_flight,
+                                          .send_alert = srs_ssl_quic_common::send_alert};
 
-SrsQuicTlsContext::SrsQuicTlsContext()
-{
-    ssl_ctx_ = NULL;
-}
+SrsQuicTlsContext::SrsQuicTlsContext() { ssl_ctx_ = NULL; }
 
 SrsQuicTlsContext::~SrsQuicTlsContext()
 {
@@ -226,24 +205,18 @@ SrsQuicTlsContext::~SrsQuicTlsContext()
     }
 }
 
-SrsQuicTlsClientContext::SrsQuicTlsClientContext()
-    : SrsQuicTlsContext()
-{
-}
+SrsQuicTlsClientContext::SrsQuicTlsClientContext() : SrsQuicTlsContext() {}
 
-SrsQuicTlsClientContext::~SrsQuicTlsClientContext()
-{
-}
+SrsQuicTlsClientContext::~SrsQuicTlsClientContext() {}
 
-srs_error_t SrsQuicTlsClientContext::init(const std::string& key, const std::string& cert)
+srs_error_t SrsQuicTlsClientContext::init(const std::string &key, const std::string &cert)
 {
     srs_error_t err = srs_success;
 
     ssl_ctx_ = SSL_CTX_new(TLS_client_method());
 
     if (ssl_ctx_ == NULL) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_new failed, err=%s",
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_new failed, err=%s", ERR_error_string(ERR_get_error(), NULL));
     }
 
     SSL_CTX_set_min_proto_version(ssl_ctx_, TLS1_3_VERSION);
@@ -252,13 +225,13 @@ srs_error_t SrsQuicTlsClientContext::init(const std::string& key, const std::str
     SSL_CTX_set_default_verify_paths(ssl_ctx_);
 
     if (SSL_CTX_set_ciphersuites(ssl_ctx_, kDefaultCiphers.c_str()) != 1) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set_ciphersuites failed, err=%s", 
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set_ciphersuites failed, err=%s",
+                             ERR_error_string(ERR_get_error(), NULL));
     }
 
     if (SSL_CTX_set1_groups_list(ssl_ctx_, kDefaultGroups.c_str()) != 1) {
         return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set1_groups_list failed, err=%s",
-            ERR_error_string(ERR_get_error(), NULL));
+                             ERR_error_string(ERR_get_error(), NULL));
     }
 
     SSL_CTX_set_quic_method(ssl_ctx_, &ssl_quic_client_method);
@@ -268,8 +241,7 @@ srs_error_t SrsQuicTlsClientContext::init(const std::string& key, const std::str
     return err;
 }
 
-SrsQuicTlsServerContext::SrsQuicTlsServerContext()
-    : SrsQuicTlsContext()
+SrsQuicTlsServerContext::SrsQuicTlsServerContext() : SrsQuicTlsContext()
 {
     tls_pkey_ = NULL;
     tls_cert_ = NULL;
@@ -288,11 +260,12 @@ SrsQuicTlsServerContext::~SrsQuicTlsServerContext()
 
 srs_error_t SrsQuicTlsServerContext::generate_tls_cert_and_key()
 {
-	srs_error_t err = srs_success;
+    srs_error_t err = srs_success;
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L // v1.1.x
+#if OPENSSL_VERSION_NUMBER < 0x10100000L  // v1.1.x
     // Initialize SSL library by registering algorithms
-    // The SSL_library_init() and OpenSSL_add_ssl_algorithms() functions were deprecated in OpenSSL 1.1.0 by OPENSSL_init_ssl().
+    // The SSL_library_init() and OpenSSL_add_ssl_algorithms() functions were deprecated in OpenSSL 1.1.0 by
+    // OPENSSL_init_ssl().
     // @see https://www.openssl.org/docs/man1.1.0/man3/OpenSSL_add_ssl_algorithms.html
     // @see https://web.archive.org/web/20150806185102/http://sctp.fh-muenster.de:80/dtls/dtls_udp_echo.c
     OpenSSL_add_ssl_algorithms();
@@ -306,12 +279,12 @@ srs_error_t SrsQuicTlsServerContext::generate_tls_cert_and_key()
     // Create keys by RSA or ECDSA.
     tls_pkey_ = EVP_PKEY_new();
     srs_assert(tls_pkey_);
-    if (true) { // By RSA
-        RSA* rsa = RSA_new();
+    if (true) {  // By RSA
+        RSA *rsa = RSA_new();
         srs_assert(rsa);
 
         // Initialize the big-number for private key.
-        BIGNUM* exponent = BN_new();
+        BIGNUM *exponent = BN_new();
         srs_assert(exponent);
         BN_set_word(exponent, RSA_F4);
 
@@ -332,20 +305,20 @@ srs_error_t SrsQuicTlsServerContext::generate_tls_cert_and_key()
     tls_cert_ = X509_new();
     srs_assert(tls_cert_);
     if (true) {
-        X509_NAME* subject = X509_NAME_new();
+        X509_NAME *subject = X509_NAME_new();
         srs_assert(subject);
 
         int serial = rand();
         ASN1_INTEGER_set(X509_get_serialNumber(tls_cert_), serial);
 
-        const std::string& aor = RTMP_SIG_SRS_DOMAIN;
-        X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC, (unsigned char *) aor.data(), aor.size(), -1, 0);
+        const std::string &aor = RTMP_SIG_SRS_DOMAIN;
+        X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC, (unsigned char *)aor.data(), aor.size(), -1, 0);
 
         X509_set_issuer_name(tls_cert_, subject);
         X509_set_subject_name(tls_cert_, subject);
 
         int expire_day = 365;
-        const long cert_duration = 60*60*24*expire_day;
+        const long cert_duration = 60 * 60 * 24 * expire_day;
 
         X509_gmtime_adj(X509_get_notBefore(tls_cert_), 0);
         X509_gmtime_adj(X509_get_notAfter(tls_cert_), cert_duration);
@@ -360,30 +333,28 @@ srs_error_t SrsQuicTlsServerContext::generate_tls_cert_and_key()
     return err;
 }
 
-srs_error_t SrsQuicTlsServerContext::init(const std::string& key, const std::string& cert)
+srs_error_t SrsQuicTlsServerContext::init(const std::string &key, const std::string &cert)
 {
     srs_error_t err = srs_success;
 
     ssl_ctx_ = SSL_CTX_new(TLS_server_method());
     if (ssl_ctx_ == NULL) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_new failed, err=%s",
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_new failed, err=%s", ERR_error_string(ERR_get_error(), NULL));
     }
 
-    unsigned long ssl_opts = (SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) |
-                              SSL_OP_SINGLE_ECDH_USE | SSL_OP_CIPHER_SERVER_PREFERENCE |
-                              SSL_OP_NO_ANTI_REPLAY;
+    unsigned long ssl_opts = (SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) | SSL_OP_SINGLE_ECDH_USE |
+                             SSL_OP_CIPHER_SERVER_PREFERENCE | SSL_OP_NO_ANTI_REPLAY;
 
     SSL_CTX_set_options(ssl_ctx_, ssl_opts);
 
     if (SSL_CTX_set_ciphersuites(ssl_ctx_, kDefaultCiphers.c_str()) != 1) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set_ciphersuites failed, err=%s", 
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set_ciphersuites failed, err=%s",
+                             ERR_error_string(ERR_get_error(), NULL));
     }
 
     if (SSL_CTX_set1_groups_list(ssl_ctx_, kDefaultGroups.c_str()) != 1) {
         return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_set1_groups_list failed, err=%s",
-            ERR_error_string(ERR_get_error(), NULL));
+                             ERR_error_string(ERR_get_error(), NULL));
     }
 
     SSL_CTX_set_mode(ssl_ctx_, SSL_MODE_RELEASE_BUFFERS);
@@ -401,34 +372,34 @@ srs_error_t SrsQuicTlsServerContext::init(const std::string& key, const std::str
         }
 
         if (SSL_CTX_use_PrivateKey(ssl_ctx_, tls_pkey_) != 1) {
-            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_PrivateKey failed, err=%s", 
-                ERR_error_string(ERR_get_error(), NULL));
+            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_PrivateKey failed, err=%s",
+                                 ERR_error_string(ERR_get_error(), NULL));
         }
 
         if (SSL_CTX_use_certificate(ssl_ctx_, tls_cert_) != 1) {
-            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_certificate failed, err=%s", 
-                ERR_error_string(ERR_get_error(), NULL));
+            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_certificate failed, err=%s",
+                                 ERR_error_string(ERR_get_error(), NULL));
         }
     } else {
         if (SSL_CTX_use_PrivateKey_file(ssl_ctx_, key.c_str(), SSL_FILETYPE_PEM) != 1) {
-            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_PrivateKey_file failed, err=%s", 
-                ERR_error_string(ERR_get_error(), NULL));
+            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_PrivateKey_file failed, err=%s",
+                                 ERR_error_string(ERR_get_error(), NULL));
         }
 
         if (SSL_CTX_use_certificate_chain_file(ssl_ctx_, cert.c_str()) != 1) {
-            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_certificate_chain_file failed, err=%s", 
-                ERR_error_string(ERR_get_error(), NULL));
+            return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_use_certificate_chain_file failed, err=%s",
+                                 ERR_error_string(ERR_get_error(), NULL));
         }
     }
 
     if (SSL_CTX_check_private_key(ssl_ctx_) != 1) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_check_private_key failed, err=%s", 
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_CTX_check_private_key failed, err=%s",
+                             ERR_error_string(ERR_get_error(), NULL));
     }
 
     const string kSessoinIdCtx = "SRS QUIC Server";
-    SSL_CTX_set_session_id_context(ssl_ctx_, 
-        reinterpret_cast<const uint8_t*>(kSessoinIdCtx.data()), kSessoinIdCtx.size());
+    SSL_CTX_set_session_id_context(ssl_ctx_, reinterpret_cast<const uint8_t *>(kSessoinIdCtx.data()),
+                                   kSessoinIdCtx.size());
 
     SSL_CTX_set_max_early_data(ssl_ctx_, UINT32_MAX);
     SSL_CTX_set_quic_method(ssl_ctx_, &ssl_quic_server_method);
@@ -438,10 +409,7 @@ srs_error_t SrsQuicTlsServerContext::init(const std::string& key, const std::str
     return err;
 }
 
-SrsQuicTlsSession::SrsQuicTlsSession()
-{
-    ssl_ = NULL;
-}
+SrsQuicTlsSession::SrsQuicTlsSession() { ssl_ = NULL; }
 
 SrsQuicTlsSession::~SrsQuicTlsSession()
 {
@@ -450,24 +418,18 @@ SrsQuicTlsSession::~SrsQuicTlsSession()
     }
 }
 
-SrsQuicTlsClientSession::SrsQuicTlsClientSession()
-    : SrsQuicTlsSession()
-{
-}
+SrsQuicTlsClientSession::SrsQuicTlsClientSession() : SrsQuicTlsSession() {}
 
-SrsQuicTlsClientSession::~SrsQuicTlsClientSession()
-{
-}
+SrsQuicTlsClientSession::~SrsQuicTlsClientSession() {}
 
-srs_error_t SrsQuicTlsClientSession::init(const SrsQuicTlsContext* quic_tls_ctx, void* handler)
+srs_error_t SrsQuicTlsClientSession::init(const SrsQuicTlsContext *quic_tls_ctx, void *handler)
 {
     srs_error_t err = srs_success;
 
-    SSL_CTX* ssl_ctx = quic_tls_ctx->get_ssl_ctx();
+    SSL_CTX *ssl_ctx = quic_tls_ctx->get_ssl_ctx();
     ssl_ = SSL_new(ssl_ctx);
     if (ssl_ == NULL) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_new failed, err=%s", 
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_new failed, err=%s", ERR_error_string(ERR_get_error(), NULL));
     }
 
     // Set handler in ssl and callback when SSL_QUIC_METHOD happen.
@@ -475,7 +437,7 @@ srs_error_t SrsQuicTlsClientSession::init(const SrsQuicTlsContext* quic_tls_ctx,
     SSL_set_connect_state(ssl_);
 
     // TODO: FIXME: alpn set by application, pass in args.
-    SSL_set_alpn_protos(ssl_, reinterpret_cast<const uint8_t*>(kHqAlpn.data()), kHqAlpn.size());
+    SSL_set_alpn_protos(ssl_, reinterpret_cast<const uint8_t *>(kHqAlpn.data()), kHqAlpn.size());
 
     // TODO: FIXME: Have better name? Or remove this code.
     SSL_set_tlsext_host_name(ssl_, "localhost");
@@ -489,24 +451,18 @@ srs_error_t SrsQuicTlsClientSession::init(const SrsQuicTlsContext* quic_tls_ctx,
     return err;
 }
 
-SrsQuicTlsServerSession::SrsQuicTlsServerSession()
-    : SrsQuicTlsSession()
-{
-}
+SrsQuicTlsServerSession::SrsQuicTlsServerSession() : SrsQuicTlsSession() {}
 
-SrsQuicTlsServerSession::~SrsQuicTlsServerSession()
-{
-}
+SrsQuicTlsServerSession::~SrsQuicTlsServerSession() {}
 
-srs_error_t SrsQuicTlsServerSession::init(const SrsQuicTlsContext* quic_tls_ctx, void* handler)
+srs_error_t SrsQuicTlsServerSession::init(const SrsQuicTlsContext *quic_tls_ctx, void *handler)
 {
     srs_error_t err = srs_success;
 
-    SSL_CTX* ssl_ctx = quic_tls_ctx->get_ssl_ctx();
+    SSL_CTX *ssl_ctx = quic_tls_ctx->get_ssl_ctx();
     ssl_ = SSL_new(ssl_ctx);
     if (ssl_ == NULL) {
-        return srs_error_new(ERROR_QUIC_TLS, "SSL_new failed, err=%s", 
-            ERR_error_string(ERR_get_error(), NULL));
+        return srs_error_new(ERROR_QUIC_TLS, "SSL_new failed, err=%s", ERR_error_string(ERR_get_error(), NULL));
     }
 
     // Set handler in ssl and callback when SSL_QUIC_METHOD happen.

@@ -25,41 +25,39 @@
 
 using namespace std;
 
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-
-#include <stdlib.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
-#include <sstream>
-
-#include <srs_core_autofree.hpp>
-#include <srs_kernel_buffer.hpp>
-#include <srs_kernel_rtc_rtp.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_kernel_log.hpp>
-#include <srs_rtc_stun_stack.hpp>
-#include <srs_rtmp_stack.hpp>
-#include <srs_rtmp_msg_array.hpp>
-#include <srs_app_utility.hpp>
 #include <srs_app_config.hpp>
-#include <srs_app_rtc_queue.hpp>
-#include <srs_app_source.hpp>
-#include <srs_app_server.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_http_stack.hpp>
 #include <srs_app_http_api.hpp>
-#include <srs_app_statistic.hpp>
 #include <srs_app_pithy_print.hpp>
-#include <srs_service_st.hpp>
-#include <srs_app_rtc_server.hpp>
-#include <srs_app_rtc_source.hpp>
-#include <srs_app_rtc_conn.hpp>
-#include <srs_protocol_utility.hpp>
 #include <srs_app_quic_client.hpp>
 #include <srs_app_quic_conn.hpp>
+#include <srs_app_rtc_conn.hpp>
+#include <srs_app_rtc_queue.hpp>
+#include <srs_app_rtc_server.hpp>
+#include <srs_app_rtc_source.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_source.hpp>
+#include <srs_app_statistic.hpp>
+#include <srs_app_utility.hpp>
+#include <srs_core_autofree.hpp>
+#include <srs_http_stack.hpp>
+#include <srs_kernel_buffer.hpp>
+#include <srs_kernel_error.hpp>
+#include <srs_kernel_log.hpp>
+#include <srs_kernel_rtc_rtp.hpp>
+#include <srs_protocol_utility.hpp>
+#include <srs_rtc_stun_stack.hpp>
+#include <srs_rtmp_msg_array.hpp>
+#include <srs_rtmp_stack.hpp>
+#include <srs_service_st.hpp>
+#include <srs_service_utility.hpp>
+#include <sstream>
 
 const int kMinRtcForwardHeaderLen = 12;
 const int kMaxRtcForwardHeaderLen = 8000;
@@ -98,7 +96,7 @@ srs_error_t SrsRtcForwardQuicConn::cycle()
     }
 
     for (std::map<int64_t, SrsRtcForwardQuicStreamThread*>::iterator iter = stream_trds_.begin();
-            iter != stream_trds_.end(); ++iter) {
+         iter != stream_trds_.end(); ++iter) {
         SrsRtcForwardQuicStreamThread* stream_trd = iter->second;
         srs_freep(stream_trd);
     }
@@ -169,15 +167,9 @@ void SrsRtcForwardQuicConn::clean_zombie_stream_thread()
     }
 }
 
-const SrsContextId& SrsRtcForwardQuicConn::get_id()
-{
-    return quic_conn_->get_id();
-}
+const SrsContextId& SrsRtcForwardQuicConn::get_id() { return quic_conn_->get_id(); }
 
-std::string SrsRtcForwardQuicConn::desc()
-{
-    return "RtcForwardQuicConn";
-}
+std::string SrsRtcForwardQuicConn::desc() { return "RtcForwardQuicConn"; }
 
 SrsRtcForwardQuicStreamThread::SrsRtcForwardQuicStreamThread(SrsRtcForwardQuicConn* conn, int64_t stream_id)
 {
@@ -222,7 +214,8 @@ srs_error_t SrsRtcForwardQuicStreamThread::read_header(uint16_t& body_len, srs_u
 
     char header[2];
     if ((err = quic_conn_->read_fully(stream_id_, header, sizeof(header), NULL, timeout)) != srs_success) {
-        return srs_error_wrap(err, "read header failed");;
+        return srs_error_wrap(err, "read header failed");
+        ;
     }
 
     body_len = header[0] << 8 | header[1];
@@ -275,7 +268,7 @@ srs_error_t SrsRtcForwardQuicStreamThread::process_req_json(char* data, size_t s
     if ((prop = json_obj->ensure_property_string("interface")) == NULL) {
         return srs_error_wrap(err, "not interface");
     }
-    string interface = prop->to_str(); 
+    string interface = prop->to_str();
 
     if (interface == "rtc_forward") {
         return process_rtc_forward_req(json_obj);
@@ -294,7 +287,7 @@ srs_error_t SrsRtcForwardQuicStreamThread::process_rtc_forward_req(SrsJsonObject
     if ((prop = json_obj->ensure_property_object("stream_url")) == NULL) {
         return srs_error_wrap(err, "not stream_url");
     }
-    SrsJsonObject* stream_url_obj = prop->to_object(); 
+    SrsJsonObject* stream_url_obj = prop->to_object();
 
     if ((prop = stream_url_obj->ensure_property_string("vhost")) == NULL) {
         return srs_error_wrap(err, "not vhost");
@@ -312,7 +305,7 @@ srs_error_t SrsRtcForwardQuicStreamThread::process_rtc_forward_req(SrsJsonObject
     }
     req_->app = prop->to_str();
 
-	SrsRtcSource* rtc_source = NULL;
+    SrsRtcSource* rtc_source = NULL;
     if ((err = _srs_rtc_sources->fetch_or_create(req_, &rtc_source)) != srs_success) {
         return srs_error_wrap(err, "create rtc_source");
     }
@@ -324,7 +317,7 @@ srs_error_t SrsRtcForwardQuicStreamThread::process_rtc_forward_req(SrsJsonObject
     if ((err = rtc_source->to_json(obj_rtc_stream)) != srs_success) {
         return srs_error_wrap(err, "rtc stream description to json failed");
     }
-    
+
     string control_response = obj_rtc_stream->dumps();
 
     srs_trace("stream_url=%s, send response=%s", req_->get_stream_url().c_str(), control_response.c_str());
@@ -349,8 +342,8 @@ srs_error_t SrsRtcForwardQuicStreamThread::cycle()
     srs_error_t err = srs_success;
 
     if ((err = do_cycle()) != srs_success) {
-        srs_error("rtc forward quic stream %s cycle failed, err=%s", 
-            req_->get_stream_url().c_str(), srs_error_desc(err).c_str());
+        srs_error("rtc forward quic stream %s cycle failed, err=%s", req_->get_stream_url().c_str(),
+                  srs_error_desc(err).c_str());
     }
 
     return quic_conn_->close(srs_error_code(err));
@@ -387,11 +380,10 @@ srs_error_t SrsRtcForwardQuicStreamThread::do_request_keyframe()
 
     ISrsRtcPublishStream* publish_stream = rtc_source->publish_stream();
     if (publish_stream != NULL) {
-	    for (int i = 0; i < (int)stream_desc->video_track_descs_.size(); ++i) {
+        for (int i = 0; i < (int)stream_desc->video_track_descs_.size(); ++i) {
             SrsRtcTrackDescription* desc = stream_desc->video_track_descs_.at(i);
             if (desc) {
-                srs_trace("rtc stream %s request key frame of ssrc %u", 
-                    req_->get_stream_url().c_str(), desc->ssrc_);
+                srs_trace("rtc stream %s request key frame of ssrc %u", req_->get_stream_url().c_str(), desc->ssrc_);
                 publish_stream->request_keyframe(desc->ssrc_);
             }
         }

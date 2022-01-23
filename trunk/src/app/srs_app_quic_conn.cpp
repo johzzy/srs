@@ -27,30 +27,28 @@ using namespace std;
 
 #include <ngtcp2/ngtcp2_crypto.h>
 
+#include <srs_app_config.hpp>
+#include <srs_app_quic_client.hpp>
+#include <srs_app_quic_io_loop.hpp>
+#include <srs_app_quic_server.hpp>
+#include <srs_app_quic_tls.hpp>
+#include <srs_app_quic_util.hpp>
+#include <srs_app_server.hpp>
+#include <srs_app_utility.hpp>
 #include <srs_core_autofree.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
-#include <srs_app_utility.hpp>
-#include <srs_app_config.hpp>
-#include <srs_app_server.hpp>
-#include <srs_app_quic_server.hpp>
-#include <srs_app_quic_client.hpp>
-#include <srs_service_utility.hpp>
-#include <srs_service_st.hpp>
 #include <srs_protocol_utility.hpp>
-#include <srs_app_quic_tls.hpp>
-#include <srs_app_quic_util.hpp>
-#include <srs_app_quic_io_loop.hpp>
+#include <srs_service_st.hpp>
+#include <srs_service_utility.hpp>
 
 SrsQuicConnection::SrsQuicConnection(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
     : SrsQuicTransport(multiplexer, ctx_id)
-{
-}
+{}
 
 SrsQuicConnection::~SrsQuicConnection()
-{
-}
+{}
 
 srs_error_t SrsQuicConnection::accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd)
 {
@@ -67,10 +65,9 @@ srs_error_t SrsQuicConnection::accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd)
 
     dcid_ = hd->scid;
     origin_dcid_ = hd->dcid;
-    
-    return init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_, 
-                reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_, 
-                &scid_, &dcid_, hd->version, hd->token.base, hd->token.len);
+
+    return init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_, reinterpret_cast<sockaddr*>(&remote_addr_),
+                remote_addr_len_, &scid_, &dcid_, hd->version, hd->token.base, hd->token.len);
 }
 
 ngtcp2_settings SrsQuicConnection::build_quic_settings(uint8_t* token, size_t tokenlen)
@@ -82,10 +79,10 @@ ngtcp2_settings SrsQuicConnection::build_quic_settings(uint8_t* token, size_t to
     settings.log_printf = ngtcp2_log_handle;
     settings.qlog.write = qlog_handle;
     settings.initial_ts = srs_get_system_time_for_quic();
-  	settings.token.base = token;
-  	settings.token.len = tokenlen;
-  	settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-  	settings.cc_algo = NGTCP2_CC_ALGO_BBR;
+    settings.token.base = token;
+    settings.token.len = tokenlen;
+    settings.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    settings.cc_algo = NGTCP2_CC_ALGO_BBR;
     return settings;
 }
 
@@ -94,15 +91,16 @@ ngtcp2_transport_params SrsQuicConnection::build_quic_transport_params(ngtcp2_ci
     ngtcp2_transport_params params;
     ngtcp2_transport_params_default(&params);
 
-  	params.initial_max_stream_data_bidi_local = kStreamDataSize;
-  	params.initial_max_stream_data_bidi_remote = kStreamDataSize;
-  	params.initial_max_stream_data_uni = kStreamDataSize;;
-  	params.initial_max_data = 2 * kStreamDataSize;
-  	params.initial_max_streams_bidi = 4;
-  	params.initial_max_streams_uni = 4;
-  	params.max_idle_timeout = 15 * NGTCP2_SECONDS;
-  	params.stateless_reset_token_present = 1;
-  	params.active_connection_id_limit = 7;
+    params.initial_max_stream_data_bidi_local = kStreamDataSize;
+    params.initial_max_stream_data_bidi_remote = kStreamDataSize;
+    params.initial_max_stream_data_uni = kStreamDataSize;
+    ;
+    params.initial_max_data = 2 * kStreamDataSize;
+    params.initial_max_streams_bidi = 4;
+    params.initial_max_streams_uni = 4;
+    params.max_idle_timeout = 15 * NGTCP2_SECONDS;
+    params.stateless_reset_token_present = 1;
+    params.active_connection_id_limit = 7;
 
     if (original_dcid) {
         params.original_dcid = *original_dcid;
@@ -113,11 +111,11 @@ ngtcp2_transport_params SrsQuicConnection::build_quic_transport_params(ngtcp2_ci
 
 int SrsQuicConnection::handshake_completed()
 {
-	srs_trace("quic connection handshake %s completed", get_conn_name().c_str());
+    srs_trace("quic connection handshake %s completed", get_conn_name().c_str());
 
     uint8_t token[NGTCP2_CRYPTO_MAX_REGULAR_TOKENLEN];
     size_t tokenlen = sizeof(token);
-    if (quic_token_->generate_token(token, tokenlen, reinterpret_cast<const sockaddr*>(&remote_addr_), 
+    if (quic_token_->generate_token(token, tokenlen, reinterpret_cast<const sockaddr*>(&remote_addr_),
                                     remote_addr_len_) != 0) {
         return 0;
     }
@@ -135,10 +133,9 @@ int SrsQuicConnection::handshake_completed()
     return 0;
 }
 
-srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_addrlen,
-        sockaddr* remote_addr, const socklen_t remote_addrlen,
-        ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version, 
-        uint8_t* token, const size_t tokenlen)
+srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_addrlen, sockaddr* remote_addr,
+                                    const socklen_t remote_addrlen, ngtcp2_cid* scid, ngtcp2_cid* dcid,
+                                    const uint32_t version, uint8_t* token, const size_t tokenlen)
 {
     srs_error_t err = srs_success;
 
@@ -147,13 +144,14 @@ srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_
 
     ngtcp2_path path = build_quic_path(local_addr, local_addrlen, remote_addr, remote_addrlen);
 
-    int ret = ngtcp2_conn_server_new(&conn_, dcid, scid, &path, version, &cb_, &settings_, &transport_params_, NULL, this);
+    int ret =
+        ngtcp2_conn_server_new(&conn_, dcid, scid, &path, version, &cb_, &settings_, &transport_params_, NULL, this);
 
     if (ret != 0) {
         return srs_error_new(ERROR_QUIC_CONN, "new quic conn failed, err=%s", ngtcp2_strerror(ret));
     }
 
-   	tls_context_ = new SrsQuicTlsServerContext();
+    tls_context_ = new SrsQuicTlsServerContext();
     string tls_key = multiplexer_->get_listener()->get_key();
     string tls_cert = multiplexer_->get_listener()->get_cert();
     if ((err = tls_context_->init(tls_key, tls_cert)) != srs_success) {
@@ -168,7 +166,7 @@ srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_
     quic_token_ = new SrsQuicToken();
     if ((err = quic_token_->init()) != srs_success) {
         return srs_error_wrap(err, "init quic token failed");
-    } 
+    }
 
     if ((err = init_timer()) != srs_success) {
         return srs_error_wrap(err, "init timer failed");
