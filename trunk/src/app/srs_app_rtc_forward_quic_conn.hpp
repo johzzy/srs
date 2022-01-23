@@ -50,7 +50,7 @@
 #include <sys/socket.h>
 
 class SrsJsonObject;
-class SrsQuicConnection;
+class SrsQuicTransport;
 class SrsRtcForwardQuicStreamThread;
 
 // TODO: FIXME: rename it.
@@ -58,7 +58,7 @@ class SrsRtcForwardQuicStreamThread;
 class SrsRtcForwardQuicConn : public ISrsResource, virtual public ISrsCoroutineHandler
 {
 public:
-    SrsRtcForwardQuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn);
+    SrsRtcForwardQuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn);
     ~SrsRtcForwardQuicConn();
 
     srs_error_t start();
@@ -75,7 +75,7 @@ private:
 public:
     SrsSTCoroutine* trd_;
     SrsQuicServer* server_;
-    SrsQuicConnection* quic_conn_;
+    SrsQuicTransport* quic_conn_;
     std::map<int64_t, SrsRtcForwardQuicStreamThread*> stream_trds_;
 };
 
@@ -102,7 +102,7 @@ private:
     srs_error_t read_header(uint16_t& body_len, srs_utime_t timeout);
     srs_error_t read_body(void* buf, int size, srs_utime_t timeout);
 private:
-    SrsQuicConnection* quic_conn_;
+    SrsQuicTransport* quic_conn_;
     SrsRequest* req_;
     int64_t stream_id_;
     SrsSTCoroutine* trd_;

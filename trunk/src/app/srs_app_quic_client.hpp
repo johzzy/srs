@@ -49,11 +49,8 @@ class SrsQuicToken;
 class SrsQuicClient : public SrsQuicTransport, virtual public ISrsCoroutineHandler
 {
 public:
-    SrsQuicClient();
+    SrsQuicClient(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id);
   	~SrsQuicClient();
-private:
-    srs_error_t create_udp_socket(const std::string& ip);
-    srs_error_t create_udp_io_thread();
 // Interface for SrsQuicTransport
 private:
     virtual ngtcp2_settings build_quic_settings(uint8_t* token , size_t tokenlen);
@@ -64,17 +61,18 @@ private:
         uint8_t* token, const size_t tokenlen);
 
 	virtual int handshake_completed();
-
+private:
+    srs_error_t create_udp_socket(const std::string& ip);
+    srs_error_t create_udp_io_thread();
+ private:
+    // Quic client udp packet io recv thread.
+    virtual srs_error_t cycle();
 // SrsQuicClient API
 public:
     srs_error_t connect(const std::string& ip, uint16_t port, srs_utime_t timeout);
 private:
-    // Quic client udp packet io recv thread.
-    virtual srs_error_t cycle();
-
-private:
-    SrsSTCoroutine* trd_;
     srs_cond_t connection_cond_;
+    SrsSTCoroutine* trd_;
 };
 
 #endif

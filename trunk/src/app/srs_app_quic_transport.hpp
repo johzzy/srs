@@ -49,6 +49,8 @@ class SrsQuicTlsSession;
 class SrsQuicToken;
 class SrsQuicStream;
 class SrsQuicTransport;
+class SrsQuicMultiplexer;
+class SrsUdpMuxSocket;
 
 enum SrsQuicStreamDirection
 {
@@ -109,10 +111,11 @@ private:
 };
 
 // Quic transport base class, process quic packets.
-class SrsQuicTransport : virtual public ISrsDynamicTimer
+class SrsQuicTransport : virtual public ISrsDynamicTimer , virtual public ISrsResource 
+                       , virtual public ISrsDisposingHandler
 {
 public:
-    SrsQuicTransport();
+    SrsQuicTransport(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id);
   	virtual ~SrsQuicTransport();
 public:
     void set_http3_conn(nghttp3_conn* conn) { http3_conn_ = conn; }
@@ -133,6 +136,7 @@ public:
                              ngtcp2_cid* scid, ngtcp2_cid* dcid, const uint32_t version,
                              uint8_t* token, const size_t tokenle) = 0;
 
+    srs_error_t on_udp_packet(SrsUdpMuxSocket* skt, const uint8_t* data, int size);
     srs_error_t on_data(ngtcp2_path* path, const uint8_t* data, size_t size);
     ngtcp2_conn* conn() { return conn_; }
     std::string get_scid();
@@ -157,13 +161,25 @@ private:
 // interface ISrsDynamicTimer
 protected:
     virtual srs_error_t notify(int event, srs_utime_t now_time);
+// Interface ISrsDisposingHandler
+public:
+    virtual void on_before_dispose(ISrsResource* c);
+    virtual void on_disposing(ISrsResource* c);
+// Interface ISrsResource.
+public:
+    virtual const SrsContextId& get_id();
+    virtual std::string desc();
+public:
+    void switch_to_context();
+    const SrsContextId& context_id();
+
 protected:
     srs_error_t write_data();
     srs_error_t send_connection_close();
     // Get static secret to generate quic token.
     uint8_t* get_static_secret();
     size_t get_static_secret_len();
-    virtual int send_packet(ngtcp2_path* path, uint8_t* data, const int size);
+    virtual int send_packet(const ngtcp2_path* path, uint8_t* data, const int size);
 // Quic tls callback function
 public:
     int on_rx_key(ngtcp2_crypto_level level, const uint8_t *secret, size_t secretlen);
@@ -209,6 +225,11 @@ private:
 
 protected:
     SrsDynamicTimer* timer_;
+    SrsQuicMultiplexer* multiplexer_;
+public:
+    bool disposing_;
+private:
+    SrsContextId ctx_id_;
 protected:
     ngtcp2_callbacks cb_;
     ngtcp2_settings settings_;
@@ -236,6 +257,7 @@ protected:
 protected:
     bool draining_;
     bool alive_;
+    std::string close_reason_;
     std::string connection_close_packet_;
     std::map<int64_t, SrsQuicStream*> streams_;
     srs_cond_t accept_stream_cond_;

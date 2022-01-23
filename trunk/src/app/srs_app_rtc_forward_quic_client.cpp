@@ -61,6 +61,7 @@ using namespace std;
 #include <srs_protocol_utility.hpp>
 #include <srs_app_quic_client.hpp>
 #include <srs_app_quic_conn.hpp>
+#include <srs_app_quic_server.hpp>
 
 const int kMinRtcForwardHeaderLen = 12;
 const int kMaxRtcForwardHeaderLen = 10000;
@@ -118,7 +119,7 @@ srs_error_t SrsRtcForwardQuicClient::cycle()
             return srs_error_wrap(err, "rtc forward client");
         }
 
-        SrsQuicClient* quic_client = new SrsQuicClient();
+        SrsQuicClient* quic_client = new SrsQuicClient(_client_listener->get_multiplexer(), _srs_context->get_id());
         SrsAutoFree(SrsQuicClient, quic_client);
 
         err = do_cycle(quic_client, rtc_source);

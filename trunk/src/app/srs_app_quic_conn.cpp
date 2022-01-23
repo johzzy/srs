@@ -43,28 +43,21 @@ using namespace std;
 #include <srs_app_quic_util.hpp>
 #include <srs_app_quic_io_loop.hpp>
 
-SrsQuicConnection::SrsQuicConnection(SrsQuicListener* listener, const SrsContextId& cid)
-    : SrsQuicTransport()
+SrsQuicConnection::SrsQuicConnection(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
+    : SrsQuicTransport(multiplexer, ctx_id)
 {
-    disposing_ = false;
-    _quic_io_loop->subscribe(this);
-
-    cid_ = cid;
-    listener_ = listener;
 }
 
 SrsQuicConnection::~SrsQuicConnection()
 {
-    _quic_io_loop->unsubscribe(this);
-    _quic_io_loop->remove(this);
 }
 
 srs_error_t SrsQuicConnection::accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd)
 {
     udp_fd_ = skt->stfd();
 
-    local_addr_ = *listener_->local_addr();
-    local_addr_len_ = listener_->local_addrlen();
+    local_addr_ = *(multiplexer_->get_listener()->local_addr());
+    local_addr_len_ = multiplexer_->get_listener()->local_addrlen();
 
     remote_addr_ = *skt->peer_addr();
     remote_addr_len_ = skt->peer_addrlen();
@@ -78,17 +71,6 @@ srs_error_t SrsQuicConnection::accept(SrsUdpMuxSocket* skt, ngtcp2_pkt_hd* hd)
     return init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_, 
                 reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_, 
                 &scid_, &dcid_, hd->version, hd->token.base, hd->token.len);
-}
-
-srs_error_t SrsQuicConnection::on_udp_packet(SrsUdpMuxSocket* skt, const uint8_t* data, int size)
-{
-    remote_addr_ = *skt->peer_addr();
-    remote_addr_len_ = skt->peer_addrlen();
-
-    ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_, 
-        reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
-
-    return on_data(&path, data, size);
 }
 
 ngtcp2_settings SrsQuicConnection::build_quic_settings(uint8_t* token, size_t tokenlen)
@@ -146,8 +128,8 @@ int SrsQuicConnection::handshake_completed()
         return -1;
     }
 
-    if (listener_) {
-        listener_->on_accept_quic_conn(this);
+    if (multiplexer_->get_listener()) {
+        multiplexer_->get_listener()->on_accept_quic_conn(this);
     }
 
     return 0;
@@ -172,8 +154,8 @@ srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_
     }
 
    	tls_context_ = new SrsQuicTlsServerContext();
-    string tls_key = listener_->get_key();
-    string tls_cert = listener_->get_cert();
+    string tls_key = multiplexer_->get_listener()->get_key();
+    string tls_cert = multiplexer_->get_listener()->get_cert();
     if ((err = tls_context_->init(tls_key, tls_cert)) != srs_success) {
         return srs_error_wrap(err, "init quic tls server ctx failed");
     }
@@ -200,49 +182,4 @@ srs_error_t SrsQuicConnection::init(sockaddr* local_addr, const socklen_t local_
 bool SrsQuicConnection::is_alive()
 {
     return true;
-}
-
-void SrsQuicConnection::on_before_dispose(ISrsResource* c)
-{
-    if (disposing_) {
-        return;
-    }
-
-    SrsQuicConnection* quic_conn = dynamic_cast<SrsQuicConnection*>(c);
-    if (quic_conn == this) {
-        disposing_ = true;
-    }
-
-    if (quic_conn && quic_conn == this) {
-        _srs_context->set_id(cid_);
-        srs_trace("QUIC: quic_conn detach from [%s](%s), disposing=%d", c->get_id().c_str(),
-            c->desc().c_str(), disposing_);
-    }
-}
-
-void SrsQuicConnection::on_disposing(ISrsResource* c)
-{
-    if (disposing_) {
-        return;
-    }
-}
-
-const SrsContextId& SrsQuicConnection::get_id()
-{
-    return cid_;
-}
-
-std::string SrsQuicConnection::desc()
-{
-    return "QuicConn";
-}
-
-void SrsQuicConnection::switch_to_context()
-{
-    _srs_context->set_id(cid_);
-}
-
-const SrsContextId& SrsQuicConnection::context_id()
-{
-    return cid_;
 }

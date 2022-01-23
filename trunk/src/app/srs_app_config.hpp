@@ -1044,6 +1044,10 @@ public:
     virtual std::string get_http_api_quic_listen();
     virtual std::string get_http_api_quic_ssl_key();
     virtual std::string get_http_api_quic_ssl_cert();
+private:
+    SrsConfDirective* get_client_quic();
+public:
+    virtual std::string get_client_quic_listen();
 // http stream section
 private:
     // Whether http stream enabled.

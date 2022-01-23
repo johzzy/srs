@@ -43,13 +43,17 @@ using namespace std;
 
 SrsQuicListener::SrsQuicListener(ISrsQuicHandler* handler, SrsQuicListenerType type)
 {
+    multiplexer_ = new SrsQuicMultiplexer(this);
+    listener_ = NULL;
     handler_ = handler;
     listen_type_ = type;
 }
 
 SrsQuicListener::~SrsQuicListener()
 {
+    srs_freep(multiplexer_);
     srs_freep(handler_);
+    srs_freep(listener_);
 }
 
 srs_error_t SrsQuicListener::listen(const string& ip, int port)
@@ -69,6 +73,7 @@ srs_error_t SrsQuicListener::listen(const string& ip, int port)
     }
 
     srs_trace("quic listen at udp://%s:%d, fd=%d", ip.c_str(), port, listener->fd());
+    listener_ = listener;
 
     return err;
 }
@@ -101,50 +106,48 @@ std::string SrsQuicListener::get_cert()
 
 srs_error_t SrsQuicListener::on_udp_packet(SrsUdpMuxSocket* skt)
 {
-    return _quic_io_loop->on_udp_packet(skt, this);
+    return multiplexer_->on_udp_packet(skt, this);
 }
 
-srs_error_t SrsQuicListener::on_accept_quic_conn(SrsQuicConnection* quic_conn)
+srs_error_t SrsQuicListener::on_accept_quic_conn(SrsQuicTransport* quic_session)
 {
-    return handler_->on_quic_client(quic_conn, listen_type_);
+    return handler_->on_quic_client(quic_session, listen_type_);
 }
 
-SrsQuicIoLoop::SrsQuicIoLoop()
+SrsQuicMultiplexer::SrsQuicMultiplexer(SrsQuicListener* listener)
 {
     quic_conn_map_ = new SrsResourceManager("quic conn map", true/*verbose*/);
+    listener_ = listener;
 }
 
-SrsQuicIoLoop::~SrsQuicIoLoop()
+SrsQuicMultiplexer::~SrsQuicMultiplexer()
 {
     srs_freep(quic_conn_map_);
 }
 
-srs_error_t SrsQuicIoLoop::initialize()
+srs_error_t SrsQuicMultiplexer::initialize()
 {
     srs_error_t err = srs_success;
     return err;
 }
 
-void SrsQuicIoLoop::subscribe(SrsQuicConnection* quic_conn)
+void SrsQuicMultiplexer::subscribe(SrsQuicTransport* quic_session)
 {
-    srs_trace("subscribe quic conn %s", quic_conn->get_conn_name().c_str());
-    quic_conn_map_->subscribe(quic_conn);
+    quic_conn_map_->subscribe(quic_session);
 }
 
-void SrsQuicIoLoop::unsubscribe(SrsQuicConnection* quic_conn)
+void SrsQuicMultiplexer::unsubscribe(SrsQuicTransport* quic_session)
 {
-    srs_trace("unsubscribe quic conn %s", quic_conn->get_conn_name().c_str());
-    quic_conn_map_->unsubscribe(quic_conn);
+    quic_conn_map_->unsubscribe(quic_session);
 }
 
-void SrsQuicIoLoop::remove(ISrsResource* resource)
+void SrsQuicMultiplexer::remove(ISrsResource* resource)
 {
-    SrsQuicConnection* quic_conn = dynamic_cast<SrsQuicConnection*>(resource);
-    srs_trace("remove quic conn %s", quic_conn->get_conn_name().c_str());
+    SrsQuicTransport* quic_session = dynamic_cast<SrsQuicTransport*>(resource);
     quic_conn_map_->remove(resource);
 }
 
-srs_error_t SrsQuicIoLoop::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListener* listener)
+srs_error_t SrsQuicMultiplexer::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListener* listener)
 {
     srs_error_t err = srs_success;
 
@@ -171,13 +174,13 @@ srs_error_t SrsQuicIoLoop::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListener* 
     srs_verbose("scid=%s, dcid=%s", quic_conn_id_dump(scid, scid_len).c_str(),
         quic_conn_id_dump(dcid, dcid_len).c_str());
 
-    SrsQuicConnection* quic_conn = NULL;
+    SrsQuicTransport* quic_session = NULL;
     string connid(reinterpret_cast<const char*>(dcid), dcid_len);
     ISrsResource* conn = quic_conn_map_->find_by_name(connid);
-    quic_conn = dynamic_cast<SrsQuicConnection*>(conn);
-    if (quic_conn) {
-        // Switch to the quic_conn to write logs to the context.
-        quic_conn->switch_to_context();
+    quic_session = dynamic_cast<SrsQuicTransport*>(conn);
+    if (quic_session) {
+        // Switch to the quic_session to write logs to the context.
+        quic_session->switch_to_context();
     } else {
         if (conn) {
             return srs_error_new(ERROR_QUIC_CONN, "maybe duplicated conn %s", 
@@ -186,15 +189,15 @@ srs_error_t SrsQuicIoLoop::on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListener* 
         // TODO: FIXME: 
         // It maybe no a new connection,  when server side handshake loss and client 
         // retry connect can occru, have not implement this case.
-        if ((err = new_connection(skt, listener, &quic_conn)) != srs_success) {
+        if ((err = new_connection(skt, listener, &quic_session)) != srs_success) {
             return srs_error_wrap(err, "create new quic connection failed");
         }
     }
 
-    return quic_conn->on_udp_packet(skt, data, size);
+    return quic_session->on_udp_packet(skt, data, size);
 }
 
-srs_error_t SrsQuicIoLoop::send_version_negotiation(SrsUdpMuxSocket* skt, const uint8_t version, 
+srs_error_t SrsQuicMultiplexer::send_version_negotiation(SrsUdpMuxSocket* skt, const uint8_t version, 
     const uint8_t* dcid, const size_t dcid_len, const uint8_t* scid, const size_t scid_len)
 {
     srs_error_t err = srs_success;
@@ -222,8 +225,7 @@ srs_error_t SrsQuicIoLoop::send_version_negotiation(SrsUdpMuxSocket* skt, const 
     return err;
 }
 
-
-srs_error_t SrsQuicIoLoop::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener, SrsQuicConnection** p_conn)
+srs_error_t SrsQuicMultiplexer::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener, SrsQuicTransport** p_conn)
 {
     srs_error_t err = srs_success;
 
@@ -253,27 +255,27 @@ srs_error_t SrsQuicIoLoop::new_connection(SrsUdpMuxSocket* skt, SrsQuicListener*
     }
 
     SrsContextId cid = _srs_context->get_id();
-    SrsQuicConnection* quic_conn = new SrsQuicConnection(listener, cid);
-    if ((err = quic_conn->accept(skt, &hd)) != srs_success) {
-        srs_freep(quic_conn);
+    SrsQuicTransport* quic_session = new SrsQuicConnection(this, cid);
+    if ((err = dynamic_cast<SrsQuicConnection*>(quic_session)->accept(skt, &hd)) != srs_success) {
+        srs_freep(quic_session);
         return srs_error_wrap(err, "quic connect init failed");
     }
 
-    // Accept quic conn, and start state-thread run cycle of this quic conn.
-    // TODO: FIXME: bad code, accepted quic connection must be handshaked done.
-    if (false) {
-        if ((err = listener->on_accept_quic_conn(quic_conn)) != srs_success) {
-            srs_freep(quic_conn);
-            return srs_error_wrap(err, "on quic client failed");
-        }
-    }
-
-    string conn_id = quic_conn->get_scid();
+    string conn_id = quic_session->get_scid();
     srs_trace("add new quic connection=%s", quic_conn_id_dump(conn_id).c_str());
-    quic_conn_map_->add_with_name(conn_id, quic_conn);
-    *p_conn = quic_conn;
+    quic_conn_map_->add_with_name(conn_id, quic_session);
+    *p_conn = quic_session;
 
     return err;
 }
 
-SrsQuicIoLoop* _quic_io_loop = new SrsQuicIoLoop();
+srs_error_t SrsQuicMultiplexer::add_transport(SrsQuicTransport* quic_session)
+{
+    srs_error_t err = srs_success;
+
+    string conn_id = quic_session->get_scid();
+    srs_trace("add quic transport=%s", quic_conn_id_dump(conn_id).c_str());
+    quic_conn_map_->add_with_name(conn_id, quic_session);
+
+    return err;
+}

@@ -63,7 +63,7 @@ srs_error_t SrsQuicServer::initialize()
     return err;
 }
 
-srs_error_t SrsQuicServer::on_quic_client(SrsQuicConnection* conn, SrsQuicListenerType type)
+srs_error_t SrsQuicServer::on_quic_client(SrsQuicTransport* conn, SrsQuicListenerType type)
 {
     srs_error_t err = srs_success;
 
@@ -119,6 +119,10 @@ srs_error_t SrsQuicServer::listen()
 {
     srs_error_t err = srs_success;
 
+    if ((err = listen_client()) != srs_success) {
+        return srs_error_wrap(err, "listen client quic failed");
+    }
+
     if ((err = listen_http_api_quic()) != srs_success) {
         return srs_error_wrap(err, "listen http api quic failed");
     }
@@ -130,6 +134,31 @@ srs_error_t SrsQuicServer::listen()
     if ((err = listen_rtc_server_quic()) != srs_success) {
         return srs_error_wrap(err, "listen rtc server quic failed");
     }
+
+    return err;
+}
+
+SrsQuicListener* _client_listener = NULL;
+
+srs_error_t SrsQuicServer::listen_client()
+{
+    srs_error_t err = srs_success;
+
+    // TODO: FIXME: need to config or generate auto?
+    std::string ep = _srs_config->get_client_quic_listen();
+
+    std::string ip;
+    int port;
+    srs_parse_endpoint(ep, ip, port);
+
+    SrsQuicListener* listener = new SrsQuicListener(this, SrsQuicListenerClient);
+    listeners_.push_back(listener);
+
+    if ((err = listener->listen(ip, port)) != srs_success) {
+        return srs_error_wrap(err, "listen quic %s:%u failed", ip.c_str(), port);
+    }
+
+    _client_listener = listener;
 
     return err;
 }

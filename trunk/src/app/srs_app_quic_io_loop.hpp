@@ -34,16 +34,21 @@
 
 #include <string>
 
-class SrsQuicConnection;
+class SrsQuicTransport;
 class ISrsResource;
 class SrsResourceManager;
+class SrsQuicMultiplexer;
 
 enum SrsQuicListenerType
 {
-	// RTC server forward.
-    SrsQuicListenerRtcForward = 0,
-    SrsQuicListenerHttpApi = 1,
-    SrsQuicListenerHttpStream = 2,
+    // QUIC client multiplexer
+    SrsQuicListenerClient = 0,
+	// RTC server forward
+    SrsQuicListenerRtcForward = 1,
+    // HTTP3 API
+    SrsQuicListenerHttpApi = 2,
+    // HTTP3 Stream
+    SrsQuicListenerHttpStream = 3,
 };
 
 class ISrsQuicHandler
@@ -52,10 +57,10 @@ public:
     ISrsQuicHandler() {}
     virtual ~ISrsQuicHandler() {}
 public:
-    virtual srs_error_t on_quic_client(SrsQuicConnection* conn, SrsQuicListenerType type) = 0;
+    virtual srs_error_t on_quic_client(SrsQuicTransport* conn, SrsQuicListenerType type) = 0;
 };
 
-// The QUIC listen, recv udp packet and pass to SrsQuicIoLoop.
+// The QUIC listen, recv udp packet and pass to SrsQuicMultiplexer.
 class SrsQuicListener : virtual public ISrsUdpMuxHandler
 {
 public:
@@ -70,10 +75,13 @@ public:
     std::string get_cert();
 public:
     virtual srs_error_t on_udp_packet(SrsUdpMuxSocket* skt);
-    srs_error_t on_accept_quic_conn(SrsQuicConnection* quic_conn);
+    srs_error_t on_accept_quic_conn(SrsQuicTransport* quic_session);
     sockaddr_in* local_addr() { return &listen_sa_; }
     socklen_t local_addrlen() { return sizeof(listen_sa_); }
+    srs_netfd_t get_mux_netfd() { return listener_->stfd(); }
+    SrsQuicMultiplexer* get_multiplexer() { return multiplexer_; }
 private:
+    SrsQuicMultiplexer* multiplexer_;
     // Handle when accept new quic conneciont(in application layer).
     ISrsQuicHandler* handler_;
     // Udp listener.
@@ -83,27 +91,29 @@ private:
 };
 
 // The QUIC server instance, handle UDP packet, manage QUIC connections(in transport layer).
-class SrsQuicIoLoop
+class SrsQuicMultiplexer
 {
 public:
-    SrsQuicIoLoop();
-    virtual ~SrsQuicIoLoop();
+    SrsQuicMultiplexer(SrsQuicListener* listener);
+    virtual ~SrsQuicMultiplexer();
 public:
     virtual srs_error_t initialize();
-    void subscribe(SrsQuicConnection* quic_conn);
-    void unsubscribe(SrsQuicConnection* quic_conn);
+    void subscribe(SrsQuicTransport* quic_session);
+    void unsubscribe(SrsQuicTransport* quic_session);
     void remove(ISrsResource* resource);
 public:
     srs_error_t on_udp_packet(SrsUdpMuxSocket* skt, SrsQuicListener* listener);
+    SrsQuicListener* get_listener() { return listener_; }
+    srs_error_t add_transport(SrsQuicTransport* quic_session);
 private:
-    srs_error_t new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener, SrsQuicConnection** p_conn);
+    srs_error_t new_connection(SrsUdpMuxSocket* skt, SrsQuicListener* listener, SrsQuicTransport** p_conn);
     srs_error_t send_version_negotiation(SrsUdpMuxSocket* skt, const uint8_t version, 
         const uint8_t* dcid, const size_t dcid_len, const uint8_t* scid, const size_t scid_len);
 private:
     // Manage QUIC connection(in transport layer).
     SrsResourceManager* quic_conn_map_;
+    // Which listener it belong to.
+    SrsQuicListener*  listener_;
 };
-
-extern SrsQuicIoLoop* _quic_io_loop;
 
 #endif

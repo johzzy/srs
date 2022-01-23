@@ -39,6 +39,7 @@ using namespace std;
 #include <srs_protocol_utility.hpp>
 #include <srs_app_quic_tls.hpp>
 #include <srs_app_quic_util.hpp>
+#include <srs_app_quic_io_loop.hpp>
 
 #define SRS_TICKID_QUIC_TRANSPORT_TIMER 1
 #define SRS_TICKID_QUIC_IDLE_TIMER 2
@@ -300,9 +301,15 @@ int SrsQuicStream::acked_stream_data_offset(uint64_t offset, uint64_t datalen)
     return 0;
 }
 
-SrsQuicTransport::SrsQuicTransport()
+SrsQuicTransport::SrsQuicTransport(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
 {
-    timer_ = new SrsDynamicTimer("quic", this, 1 * SRS_UTIME_MILLISECONDS);
+    disposing_ = false;
+    ctx_id_ = ctx_id;
+    multiplexer_ = multiplexer;
+
+    multiplexer_->subscribe(this);
+
+    timer_ = new SrsDynamicTimer("quic", this, 10 * SRS_UTIME_MILLISECONDS);
     conn_ = NULL;
     http3_conn_ = NULL;
     udp_fd_ = NULL;
@@ -358,6 +365,9 @@ SrsQuicTransport::SrsQuicTransport()
 
 SrsQuicTransport::~SrsQuicTransport()
 {
+    multiplexer_->unsubscribe(this);
+    multiplexer_->remove(this);
+
     srs_freep(timer_);
     srs_freep(tls_context_);
     srs_freep(tls_session_);
@@ -417,6 +427,17 @@ srs_error_t SrsQuicTransport::init_timer()
     }
 
     return err;
+}
+
+srs_error_t SrsQuicTransport::on_udp_packet(SrsUdpMuxSocket* skt, const uint8_t* data, int size)
+{
+    remote_addr_ = *skt->peer_addr();
+    remote_addr_len_ = skt->peer_addrlen();
+
+    ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
+        reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
+
+    return on_data(&path, data, size);
 }
 
 srs_error_t SrsQuicTransport::on_data(ngtcp2_path* path, const uint8_t* data, size_t size)
@@ -836,6 +857,51 @@ srs_error_t SrsQuicTransport::notify(int type, srs_utime_t now_time)
     return err;
 }
 
+void SrsQuicTransport::on_before_dispose(ISrsResource* c)
+{
+    if (disposing_) {
+        return;
+    }
+
+    SrsQuicTransport* quic_conn = dynamic_cast<SrsQuicTransport*>(c);
+    if (quic_conn == this) {
+        disposing_ = true;
+    }
+
+    if (quic_conn && quic_conn == this) {
+        _srs_context->set_id(ctx_id_);
+        srs_trace("QUIC: quic_conn detach from [%s](%s), disposing=%d", c->get_id().c_str(),
+            c->desc().c_str(), disposing_);
+    }
+}
+
+void SrsQuicTransport::on_disposing(ISrsResource* c)
+{
+    if (disposing_) {
+        return;
+    }
+}
+
+const SrsContextId& SrsQuicTransport::get_id()
+{
+    return ctx_id_;
+}
+
+std::string SrsQuicTransport::desc()
+{
+    return "QuicConn";
+}
+
+void SrsQuicTransport::switch_to_context()
+{
+    _srs_context->set_id(ctx_id_);
+}
+
+const SrsContextId& SrsQuicTransport::context_id()
+{
+    return ctx_id_;
+}
+
 srs_error_t SrsQuicTransport::write_data()
 {
     srs_error_t err = srs_success;
@@ -939,7 +1005,8 @@ srs_error_t SrsQuicTransport::enter_closing_period(int error_code)
     uint8_t buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE] = {0};
 
     int nwrite = ngtcp2_conn_write_connection_close(conn_, NULL, NULL, buf, sizeof(buf), 
-            error_code, srs_get_system_time_for_quic());
+            error_code, reinterpret_cast<const uint8_t*>(close_reason_.c_str()), 
+            close_reason_.size(), srs_get_system_time_for_quic());
 
     if (nwrite < 0) {
         return srs_error_new(ERROR_QUIC_CONN, "generate quic close frame failed");
@@ -983,6 +1050,8 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
     path.local.addr = reinterpret_cast<sockaddr *>(&local_addr_storage);
     path.remote.addr = reinterpret_cast<sockaddr *>(&remote_addr_storage);
 
+    size_t max_udp_payload_size = ngtcp2_conn_get_path_max_udp_payload_size(conn_);
+
     while (true) {
         // No more stream data to write.
         if (buffer && buffer->size_unsend() == 0) {
@@ -992,7 +1061,7 @@ srs_error_t SrsQuicTransport::write_stream_data(int64_t stream_id, SrsQuicStream
         // Merge write, ngtcp2 will append multi small quic packet into one udp packet if possiblity.
         uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
 
-        if (buffer && ngtcp2_conn_get_max_data_left(conn_) < NGTCP2_MAX_UDP_PAYLOAD_SIZE) {
+        if (buffer && ngtcp2_conn_get_max_data_left(conn_) < max_udp_payload_size) {
             return srs_error_new(ERROR_QUIC_AGAIN, "no data left in quic conn");
         }
 
@@ -1072,10 +1141,9 @@ srs_error_t SrsQuicTransport::send_connection_close()
         return srs_error_new(ERROR_QUIC_CONN, "empty connection close packet");
     }
 
-    ngtcp2_path path = build_quic_path(reinterpret_cast<sockaddr*>(&local_addr_),
-        local_addr_len_, reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_);
+    const ngtcp2_path* path = ngtcp2_conn_get_path(conn_);
 
-    if (send_packet(&path, (uint8_t*)connection_close_packet_.data(), 
+    if (send_packet(path, (uint8_t*)connection_close_packet_.data(), 
                      connection_close_packet_.size()) <= 0) {
         return srs_error_new(ERROR_QUIC_UDP_SEND, "close quic connection failed");
     }
@@ -1096,7 +1164,7 @@ size_t SrsQuicTransport::get_static_secret_len()
     return quic_token_->get_static_secret_len();
 }
 
-int SrsQuicTransport::send_packet(ngtcp2_path* path, uint8_t* data, const int size)
+int SrsQuicTransport::send_packet(const ngtcp2_path* path, uint8_t* data, const int size)
 {
     if (! udp_fd_ || data == NULL || size <= 0) {
         return -1;

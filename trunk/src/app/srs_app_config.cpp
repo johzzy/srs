@@ -3614,7 +3614,7 @@ srs_error_t SrsConfig::check_normal_config()
             && n != "ff_log_level" && n != "grace_final_wait" && n != "force_grace_quit"
             && n != "grace_start_wait" && n != "empty_ip_ok" && n != "disable_daemon_for_docker"
             && n != "inotify_auto_reload" && n != "auto_reload_for_docker" && n != "tcmalloc_release_rate"
-            && n != "circuit_breaker" && n != "is_full"
+            && n != "circuit_breaker" && n != "is_full" && n != "client_quic"
             ) {
             return srs_error_new(ERROR_SYSTEM_CONFIG_INVALID, "illegal directive %s", n.c_str());
         }
@@ -8130,6 +8130,16 @@ SrsConfDirective* SrsConfig::get_http_api_quic()
     return conf->get("quic");
 }
 
+SrsConfDirective* SrsConfig::get_client_quic()
+{
+    SrsConfDirective* conf = root->get("client_quic");
+    if (!conf) {
+        return NULL;
+    }
+
+    return conf->get("quic");
+}
+
 bool SrsConfig::get_http_api_quic_enabled()
 {
     static bool DEFAULT = false;
@@ -8174,6 +8184,23 @@ string SrsConfig::get_http_api_quic_ssl_key()
     }
 
     conf = conf->get("key");
+    if (!conf) {
+        return DEFAULT;
+    }
+
+    return conf->arg0();
+}
+
+string SrsConfig::get_client_quic_listen()
+{
+    static string DEFAULT = "20000";
+
+    SrsConfDirective* conf = get_client_quic();
+    if (!conf) {
+        return DEFAULT;
+    }
+
+    conf = conf->get("listen");
     if (!conf) {
         return DEFAULT;
     }

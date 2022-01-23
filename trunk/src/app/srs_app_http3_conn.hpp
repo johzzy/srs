@@ -54,7 +54,7 @@
 #include <nghttp3/nghttp3.h>
 
 class SrsLiveReader;
-class SrsQuicConnection;
+class SrsQuicTransport;
 class SrsHttp3StreamThread;
 
 // TODO: FIXME: rename it.
@@ -65,7 +65,7 @@ class SrsHttp3QuicConn : public ISrsResource, virtual public ISrsCoroutineHandle
     friend class SrsHttp3StreamThread;
     friend class SrsHttp3ResponseWriter;
 public:
-    SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler);
+    SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler);
     ~SrsHttp3QuicConn();
 
     srs_error_t start();
@@ -96,7 +96,7 @@ private:
     SrsSTCoroutine* trd_;
     SrsHourGlass* timer_;
     SrsQuicServer* server_;
-    SrsQuicConnection* quic_conn_;
+    SrsQuicTransport* quic_conn_;
     int64_t ctrl_stream_id_;
     int64_t qpack_enc_stream_id_;
     int64_t qpack_dec_stream_id_;
@@ -167,7 +167,7 @@ private:
     SrsHttpHeader header_;
 private:
     SrsHttp3QuicConn* conn_;
-    SrsQuicConnection* quic_conn_;
+    SrsQuicTransport* quic_conn_;
     SrsQuicStreamWriteBuffer* buffer_;
     int64_t stream_id_;
     SrsSTCoroutine* trd_;

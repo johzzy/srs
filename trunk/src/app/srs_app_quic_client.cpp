@@ -45,8 +45,8 @@ using namespace std;
 #include <sys/socket.h>
 #include <netdb.h>
 
-SrsQuicClient::SrsQuicClient()
-    : SrsQuicTransport()
+SrsQuicClient::SrsQuicClient(SrsQuicMultiplexer* multiplexer, const SrsContextId& ctx_id)
+    : SrsQuicTransport(multiplexer, ctx_id)
 {
     trd_ = NULL;
     connection_cond_ = NULL;
@@ -56,7 +56,6 @@ SrsQuicClient::~SrsQuicClient()
 {
     srs_freep(trd_);
     srs_close_stfd(udp_fd_);
-
     if (connection_cond_) {
         srs_cond_destroy(connection_cond_);
     }
@@ -230,15 +229,6 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
 {
     srs_error_t err = srs_success;
 
-    if ((err = create_udp_socket(ip)) != srs_success) {
-        return srs_error_wrap(err, "create socket failed");
-    }
-
-    // TODO: FIXME: We can register all quic client to quic io loop.
-    if ((err = create_udp_io_thread()) != srs_success) {
-        return srs_error_wrap(err, "create udp io thread failed");
-    }
-
     remote_addr_len_ = sizeof(remote_addr_);
     remote_addr_.sin_family = AF_INET;
     remote_addr_.sin_port = htons(port);
@@ -251,10 +241,30 @@ srs_error_t SrsQuicClient::connect(const std::string& ip, uint16_t port, srs_uti
     dcid_.datalen = kClientCidLen;
     srs_generate_rand_data(dcid_.data, dcid_.datalen);
 
+    bool use_multiplexer = false;
+    if (use_multiplexer) {
+        local_addr_ = *(multiplexer_->get_listener()->local_addr());
+        local_addr_len_ = multiplexer_->get_listener()->local_addrlen();
+    } else {
+        if ((err = create_udp_socket(ip)) != srs_success) {
+            return srs_error_wrap(err, "create socket failed");
+        }
+
+        // TODO: FIXME: We can register all quic client to quic io loop.
+        if ((err = create_udp_io_thread()) != srs_success) {
+            return srs_error_wrap(err, "create udp io thread failed");
+        }
+    }
+
 	if ((err = init(reinterpret_cast<sockaddr*>(&local_addr_), local_addr_len_,
                     reinterpret_cast<sockaddr*>(&remote_addr_), remote_addr_len_,
                     &scid_, &dcid_, NGTCP2_PROTO_VER_MIN, NULL, 0)) != srs_success) {
         return srs_error_wrap(err, "connect to %s:%u failed", ip.c_str(), port);
+    }
+
+    if (use_multiplexer) {
+        udp_fd_ = multiplexer_->get_listener()->get_mux_netfd();
+        multiplexer_->add_transport(this);
     }
 
     if ((err = write_data()) != srs_success) {
@@ -279,7 +289,7 @@ int SrsQuicClient::handshake_completed()
 
 srs_error_t SrsQuicClient::cycle()
 {
-   	srs_error_t err = srs_success;
+       srs_error_t err = srs_success;
 
     uint8_t buf[1600];
     int nb_buf = sizeof(buf);
@@ -301,7 +311,7 @@ srs_error_t SrsQuicClient::cycle()
         if ((err = on_data(&path, buf, nread)) != srs_success) {
             return srs_error_wrap(err, "quic client process packet failed");
         }
-	}
+       }
 
     return err;
 }

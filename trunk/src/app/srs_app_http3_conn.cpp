@@ -91,7 +91,7 @@ static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id, nght
 
 
 int cb_http3_acked_stream_data(nghttp3_conn *conn, int64_t stream_id,
-                              size_t datalen, void *conn_user_data,
+                              uint64_t datalen, void *conn_user_data,
                               void *stream_user_data) 
 {
     SrsHttp3StreamThread* http3_stream = static_cast<SrsHttp3StreamThread*>(stream_user_data);
@@ -171,53 +171,8 @@ int cb_http3_end_trailers(nghttp3_conn *conn, int64_t stream_id,
     return 0;
 }
 
-int cb_http3_begin_push_promise(nghttp3_conn *conn, int64_t stream_id,
-                                int64_t push_id, void *conn_user_data,
-                                void *stream_user_data) 
-{
-    return 0;
-}
-
-int cb_http3_recv_push_promise(nghttp3_conn *conn, int64_t stream_id,
-                               int64_t push_id, int32_t token,
-                               nghttp3_rcbuf *name,
-                               nghttp3_rcbuf *value, uint8_t flags,
-                               void *conn_user_data,
-                               void *stream_user_data) 
-{
-    return 0;
-}
-
-int cb_http3_end_push_promise(nghttp3_conn *conn, int64_t stream_id,
-                              int64_t push_id, void *conn_user_data,
-                              void *stream_user_data) 
-{
-    return 0;
-}
-
 int cb_http3_end_stream(nghttp3_conn *conn, int64_t stream_id,
                         void *conn_user_data, void *stream_user_data) 
-{
-    return 0;
-}
-
-int cb_http3_cancel_push(nghttp3_conn *conn, int64_t push_id,
-                         int64_t stream_id, void *conn_user_data,
-                         void *stream_user_data) 
-{
-    return 0;
-}
-
-int cb_http3_send_stop_sending(nghttp3_conn *conn, int64_t stream_id,
-                               uint64_t app_error_code,
-                               void *conn_user_data,
-                               void *stream_user_data) 
-{
-    return 0;
-}
-
-int cb_http3_push_stream(nghttp3_conn *conn, int64_t push_id,
-                         int64_t stream_id, void *conn_user_data) 
 {
     return 0;
 }
@@ -230,7 +185,13 @@ int cb_http3_reset_stream(nghttp3_conn *conn, int64_t stream_id,
     return 0;
 }
 
-SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler)
+int cb_http3_shutdown(nghttp3_conn *conn, int64_t id,
+                        void *conn_user_data)
+{
+    return 0;
+}
+
+SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler)
 {
     http_mux_ = http_mux;
     handler_ = handler;
@@ -274,14 +235,9 @@ srs_error_t SrsHttp3QuicConn::start()
   	http3_cb_.begin_trailers = cb_http3_begin_trailers;
   	http3_cb_.recv_trailer = cb_http3_recv_trailer;
   	http3_cb_.end_trailers = cb_http3_end_trailers;
-  	http3_cb_.begin_push_promise = cb_http3_begin_push_promise;
-  	http3_cb_.recv_push_promise = cb_http3_recv_push_promise;
-  	http3_cb_.end_push_promise = cb_http3_end_push_promise;
-  	http3_cb_.cancel_push = cb_http3_cancel_push;
-  	http3_cb_.send_stop_sending = cb_http3_send_stop_sending;
-  	http3_cb_.push_stream = cb_http3_push_stream;
   	http3_cb_.end_stream = cb_http3_end_stream;
   	http3_cb_.reset_stream = cb_http3_reset_stream;
+    http3_cb_.shutdown = cb_http3_shutdown;
     
     nghttp3_settings_default(&http3_settings_);
     http3_settings_.qpack_max_table_capacity = 1024*16;

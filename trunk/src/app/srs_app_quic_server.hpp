@@ -51,7 +51,7 @@ public:
     virtual ~SrsQuicServer();
 // Interface for ISrsQuicHandler
 public:
-    virtual srs_error_t on_quic_client(SrsQuicConnection* conn, SrsQuicListenerType type);
+    virtual srs_error_t on_quic_client(SrsQuicTransport* conn, SrsQuicListenerType type);
     void remove(ISrsResource* resource);
 public:
     srs_error_t initialize();
@@ -60,6 +60,8 @@ public:
     // TODO: FIXME: Support reload.
     srs_error_t listen();
 private:
+    // Client multiplexer, avoid create too many socket st thread.
+    srs_error_t listen_client();
     srs_error_t listen_http_api_quic();
     srs_error_t listen_http_stream_quic();
     srs_error_t listen_rtc_server_quic();
@@ -82,5 +84,7 @@ public:
     virtual srs_error_t run();
     virtual void stop();
 };
+
+extern SrsQuicListener* _client_listener;
 
 #endif

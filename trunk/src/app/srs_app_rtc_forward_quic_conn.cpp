@@ -64,7 +64,7 @@ using namespace std;
 const int kMinRtcForwardHeaderLen = 12;
 const int kMaxRtcForwardHeaderLen = 8000;
 
-SrsRtcForwardQuicConn::SrsRtcForwardQuicConn(SrsQuicServer* server, SrsQuicConnection* quic_conn)
+SrsRtcForwardQuicConn::SrsRtcForwardQuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn)
 {
     server_ = server;
     quic_conn_ = quic_conn;
