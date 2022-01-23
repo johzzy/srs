@@ -75,7 +75,7 @@ static nghttp3_ssize dump_http3_data(nghttp3_conn *conn, int64_t stream_id, nght
     ssize_t nb = 0;
     bool eof = false;
     int ret = http3_stream->dump_data(&buf, &nb, eof);
-    srs_trace("@john dump %d bytes, eof=%d", nb, eof);
+    srs_trace("@john dump stream_id=%ld %d bytes, eof=%d", stream_id, nb, eof);
     if (ret == 0) {
         return NGHTTP3_ERR_WOULDBLOCK;
     }
@@ -103,7 +103,7 @@ int cb_http3_stream_close(nghttp3_conn *conn, int64_t stream_id,
                           void *conn_user_data,
                           void *stream_user_data) 
 {
-    srs_trace("@john, h3 stream %lld closed, error code=%lu", stream_id, app_error_code);
+    srs_trace("h3 stream %lld closed, error code=%lu", stream_id, app_error_code);
     return 0;
 }
 
@@ -126,7 +126,7 @@ int cb_http3_begin_headers(nghttp3_conn *conn, int64_t stream_id,
                            void *conn_user_data,
                            void *stream_user_data) 
 {
-    SrsHttp3QuicConn* http3_conn = static_cast<SrsHttp3QuicConn*>(conn_user_data);
+    SrsHttp3Conn* http3_conn = static_cast<SrsHttp3Conn*>(conn_user_data);
     return http3_conn->begin_request_headers(stream_id);
 }
 
@@ -152,6 +152,7 @@ int cb_http3_begin_trailers(nghttp3_conn *conn, int64_t stream_id,
                            void *conn_user_data,
                            void *stream_user_data) 
 {
+    srs_trace("http3 begin trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
@@ -161,6 +162,7 @@ int cb_http3_recv_trailer(nghttp3_conn *conn, int64_t stream_id,
                          void *conn_user_data,
                          void *stream_user_data) 
 {
+    srs_trace("http3 recv trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
@@ -168,12 +170,14 @@ int cb_http3_end_trailers(nghttp3_conn *conn, int64_t stream_id,
                          void *conn_user_data,
                          void *stream_user_data) 
 {
+    srs_trace("http3 end trailers, stream_id=%ld", stream_id);
     return 0;
 }
 
 int cb_http3_end_stream(nghttp3_conn *conn, int64_t stream_id,
                         void *conn_user_data, void *stream_user_data) 
 {
+    srs_trace("http3 stream end, stream_id=%ld", stream_id);
     return 0;
 }
 
@@ -182,16 +186,18 @@ int cb_http3_reset_stream(nghttp3_conn *conn, int64_t stream_id,
                           void *conn_user_data,
                           void *stream_user_data) 
 {
+    srs_trace("http3 stream reset, stream_id=%ld", stream_id);
     return 0;
 }
 
 int cb_http3_shutdown(nghttp3_conn *conn, int64_t id,
                         void *conn_user_data)
 {
+    srs_trace("http3 shutdown, id=%ld", id);
     return 0;
 }
 
-SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler)
+SrsHttp3Conn::SrsHttp3Conn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler)
 {
     http_mux_ = http_mux;
     handler_ = handler;
@@ -201,7 +207,7 @@ SrsHttp3QuicConn::SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicTransport* quic
     trd_ = NULL;
 }
 
-SrsHttp3QuicConn::~SrsHttp3QuicConn()
+SrsHttp3Conn::~SrsHttp3Conn()
 {
     srs_freep(quic_conn_);
     srs_freep(trd_);
@@ -219,7 +225,7 @@ static void nghttp3_debug_log_handler(const char *format, va_list args)
     }
 }
 
-srs_error_t SrsHttp3QuicConn::start()
+srs_error_t SrsHttp3Conn::start()
 {
     srs_error_t err = srs_success;
 
@@ -295,7 +301,7 @@ srs_error_t SrsHttp3QuicConn::start()
     return err;
 }
 
-srs_error_t SrsHttp3QuicConn::start_ctrl_stream_thread() {
+srs_error_t SrsHttp3Conn::start_ctrl_stream_thread() {
     srs_error_t err = srs_success;
     if ((err = quic_conn_->open_uni_stream(&ctrl_stream_id_)) != srs_success) {
         return srs_error_wrap(err, "open ctrl stream failed");
@@ -314,7 +320,7 @@ srs_error_t SrsHttp3QuicConn::start_ctrl_stream_thread() {
     return srs_success;
 }
 
-srs_error_t SrsHttp3QuicConn::start_qpack_enc_stream_thread() {
+srs_error_t SrsHttp3Conn::start_qpack_enc_stream_thread() {
     srs_error_t err = srs_success;
     if ((err = quic_conn_->open_uni_stream(&qpack_enc_stream_id_)) != srs_success) {
         return srs_error_wrap(err, "open qpack enc stream failed");
@@ -331,7 +337,7 @@ srs_error_t SrsHttp3QuicConn::start_qpack_enc_stream_thread() {
     return srs_success;
 }
 
-srs_error_t SrsHttp3QuicConn::start_qpack_dec_stream_thread() {
+srs_error_t SrsHttp3Conn::start_qpack_dec_stream_thread() {
     srs_error_t err = srs_success;
     if ((err = quic_conn_->open_uni_stream(&qpack_dec_stream_id_)) != srs_success) {
         return srs_error_wrap(err, "open qpack dec stream failed");
@@ -348,7 +354,7 @@ srs_error_t SrsHttp3QuicConn::start_qpack_dec_stream_thread() {
     return srs_success;
 }
 
-srs_error_t SrsHttp3QuicConn::cycle()
+srs_error_t SrsHttp3Conn::cycle()
 {
     srs_error_t err = srs_success;
 
@@ -367,7 +373,7 @@ srs_error_t SrsHttp3QuicConn::cycle()
     return err;
 }
 
-srs_error_t SrsHttp3QuicConn::do_cycle()
+srs_error_t SrsHttp3Conn::do_cycle()
 {
     srs_error_t err = srs_success;
 
@@ -390,17 +396,17 @@ srs_error_t SrsHttp3QuicConn::do_cycle()
     return err;
 }
 
-const SrsContextId& SrsHttp3QuicConn::get_id()
+const SrsContextId& SrsHttp3Conn::get_id()
 {
     return quic_conn_->get_id();
 }
 
-std::string SrsHttp3QuicConn::desc()
+std::string SrsHttp3Conn::desc()
 {
     return "Http3QuicConn";
 }
 
-srs_error_t SrsHttp3QuicConn::accept_stream()
+srs_error_t SrsHttp3Conn::accept_stream()
 {
     srs_error_t err = srs_success;
 
@@ -426,7 +432,7 @@ srs_error_t SrsHttp3QuicConn::accept_stream()
     return err;
 }
 
-void SrsHttp3QuicConn::clean_zombie_stream_thread()
+void SrsHttp3Conn::clean_zombie_stream_thread()
 {
     std::map<int64_t, SrsHttp3StreamThread*>::iterator iter = stream_trds_.begin();
     while (iter != stream_trds_.end()) {
@@ -442,7 +448,7 @@ void SrsHttp3QuicConn::clean_zombie_stream_thread()
     }
 }
 
-int SrsHttp3QuicConn::begin_request_headers(int64_t stream_id)
+int SrsHttp3Conn::begin_request_headers(int64_t stream_id)
 {
     std::map<int64_t, SrsHttp3StreamThread*>::iterator iter = stream_trds_.find(stream_id);
     if (iter == stream_trds_.end()) {
@@ -453,12 +459,12 @@ int SrsHttp3QuicConn::begin_request_headers(int64_t stream_id)
     return 0;
 }
 
-srs_error_t SrsHttp3QuicConn::notify(int event, srs_utime_t interval, srs_utime_t tick)
+srs_error_t SrsHttp3Conn::notify(int event, srs_utime_t interval, srs_utime_t tick)
 {
     return flush_h3_stream();
 }
 
-srs_error_t SrsHttp3QuicConn::flush_h3_stream()
+srs_error_t SrsHttp3Conn::flush_h3_stream()
 {
     srs_error_t err = srs_success;
     int fin = 0;
@@ -561,7 +567,7 @@ srs_error_t SrsHttp3ResponseWriter::send_header(char* data, int size)
     return err;
 }
 
-SrsHttp3StreamThread::SrsHttp3StreamThread(SrsHttp3QuicConn* conn, int64_t stream_id)
+SrsHttp3StreamThread::SrsHttp3StreamThread(SrsHttp3Conn* conn, int64_t stream_id)
 {
     header_completed_ = false;
     data_eof_ = false;

@@ -59,14 +59,14 @@ class SrsHttp3StreamThread;
 
 // TODO: FIXME: rename it.
 // Process pull rtc stream requet, and send rtc stream over quic.
-class SrsHttp3QuicConn : public ISrsResource, virtual public ISrsCoroutineHandler
+class SrsHttp3Conn : public ISrsResource, virtual public ISrsCoroutineHandler
                        , virtual public ISrsHourGlass
 {
     friend class SrsHttp3StreamThread;
     friend class SrsHttp3ResponseWriter;
 public:
-    SrsHttp3QuicConn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler);
-    ~SrsHttp3QuicConn();
+    SrsHttp3Conn(SrsQuicServer* server, SrsQuicTransport* quic_conn, ISrsHttpServeMux* http_mux, ISrsHttpConnOwner* handler);
+    ~SrsHttp3Conn();
 
     srs_error_t start();
     virtual srs_error_t cycle();
@@ -125,7 +125,7 @@ class SrsHttp3StreamThread : virtual public ISrsCoroutineHandler, public ISrsPro
 {
     friend class SrsHttp3ResponseWriter;
 public:
-    SrsHttp3StreamThread(SrsHttp3QuicConn* conn, int64_t stream_id);
+    SrsHttp3StreamThread(SrsHttp3Conn* conn, int64_t stream_id);
     ~SrsHttp3StreamThread();
 public:
     srs_error_t start();
@@ -166,7 +166,7 @@ private:
     SrsHttpMessage msg_;
     SrsHttpHeader header_;
 private:
-    SrsHttp3QuicConn* conn_;
+    SrsHttp3Conn* conn_;
     SrsQuicTransport* quic_conn_;
     SrsQuicStreamWriteBuffer* buffer_;
     int64_t stream_id_;
