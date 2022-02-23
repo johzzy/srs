@@ -377,7 +377,7 @@ int st_poll_del(_st_netfd_t *fd, st_utime_t timeout) {
     pq.thread = me;
     pq.on_ioq = 1;
 
-    _ST_DEL_IOQ(pq);
+    // _ST_DEL_IOQ(pq);
 
     (*_st_eventsys->pollset_del)(&pd, 1);
     return 0;
