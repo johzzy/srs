@@ -37,6 +37,23 @@ bool srs_st_epoll_is_supported(void)
 }
 #endif
 
+srs_netfd_t srs_poll_add(srs_netfd_t o, srs_utime_t tm) {
+    st_netfd_t fd = (st_netfd_t)o;
+    st_utime_t timeout = ST_UTIME_NO_TIMEOUT;
+    if (tm != SRS_UTIME_NO_TIMEOUT) {
+        timeout = tm;
+    }
+    return (srs_netfd_t)st_poll_add(fd, timeout);
+}
+int srs_poll_del(srs_netfd_t o, srs_utime_t tm) {
+    st_netfd_t fd = (st_netfd_t)o;
+    st_utime_t timeout = ST_UTIME_NO_TIMEOUT;
+    if (tm != SRS_UTIME_NO_TIMEOUT) {
+        timeout = tm;
+    }
+    return st_poll_del(fd, timeout);
+}
+
 srs_error_t srs_st_init()
 {
 #ifdef __linux__

@@ -19,6 +19,9 @@ typedef void* srs_thread_t;
 typedef void* srs_cond_t;
 typedef void* srs_mutex_t;
 
+extern srs_netfd_t srs_poll_add(srs_netfd_t fd, srs_utime_t timeout);
+extern int srs_poll_del(srs_netfd_t fd, srs_utime_t timeout);
+
 // Initialize st, requires epoll.
 extern srs_error_t srs_st_init();
 

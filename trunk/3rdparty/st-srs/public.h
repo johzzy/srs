@@ -156,6 +156,9 @@ extern int st_sendmsg(st_netfd_t fd, const struct msghdr *msg, int flags, st_uti
 
 extern st_netfd_t st_open(const char *path, int oflags, mode_t mode);
 
+extern st_netfd_t st_poll_add(st_netfd_t fd , st_utime_t timeout);
+extern int st_poll_del(st_netfd_t fd, st_utime_t timeout);
+
 #ifdef DEBUG
 extern void _st_show_thread_stack(st_thread_t thread, const char *messg);
 extern void _st_iterate_threads(void);

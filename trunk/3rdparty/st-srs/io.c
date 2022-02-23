@@ -309,6 +309,79 @@ _st_netfd_t *st_accept(_st_netfd_t *fd, struct sockaddr *addr, int *addrlen, st_
     return newfd;
 }
 
+_st_netfd_t *st_poll_add(_st_netfd_t *fd , st_utime_t timeout) {
+    struct pollfd pd;
+    int osfd = fd->osfd;
+
+    pd.fd = fd->osfd;
+    pd.events = (short)POLLIN;
+    pd.revents = 0;
+
+
+    _st_pollq_t pq;
+    _st_thread_t *me = _ST_CURRENT_THREAD();
+
+    if (me->flags & _ST_FL_INTERRUPT) {
+        me->flags &= ~_ST_FL_INTERRUPT;
+        errno = EINTR;
+        return NULL;
+    }
+
+    if ((*_st_eventsys->pollset_add)(&pd, 1) < 0)
+        return NULL;
+
+    pq.pds = &pd;
+    pq.npds = 1;
+    pq.thread = me;
+    pq.on_ioq = 1;
+    _ST_ADD_IOQ(pq);
+
+    if (timeout != ST_UTIME_NO_TIMEOUT)
+        _ST_ADD_SLEEPQ(me, timeout);
+    me->state = _ST_ST_IO_WAIT;
+
+    _ST_SWITCH_CONTEXT(me);
+
+    _st_netfd_t *newfd;
+
+#if defined (MD_ACCEPT_NB_INHERITED)
+    newfd = _st_netfd_new(osfd, 0, 1);
+#elif defined (MD_ACCEPT_NB_NOT_INHERITED)
+    newfd = _st_netfd_new(osfd, 1, 1);
+#else
+#error Unknown OS
+#endif
+
+    return newfd;
+}
+
+int st_poll_del(_st_netfd_t *fd, st_utime_t timeout) {
+    struct pollfd pd;
+
+    pd.fd = fd->osfd;
+    pd.events = (short)POLLIN;
+    pd.revents = 0;
+
+
+    _st_pollq_t pq;
+    _st_thread_t *me = _ST_CURRENT_THREAD();
+
+    if (me->flags & _ST_FL_INTERRUPT) {
+        me->flags &= ~_ST_FL_INTERRUPT;
+        errno = EINTR;
+        return -1;
+    }
+
+    pq.pds = &pd;
+    pq.npds = 1;
+    pq.thread = me;
+    pq.on_ioq = 1;
+
+    _ST_DEL_IOQ(pq);
+
+    (*_st_eventsys->pollset_del)(&pd, 1);
+    return 0;
+}
 
 int st_connect(_st_netfd_t *fd, const struct sockaddr *addr, int addrlen, st_utime_t timeout)
 {
